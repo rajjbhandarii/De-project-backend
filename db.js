@@ -16,7 +16,8 @@ async function connectDB() {
     await client.connect();
     await client.db("admin").command({ ping: 1 });
     console.log("✅ MongoDB connected successfully");
-    return client;
+    // Return the database object instead of the client
+    return client.db(); // This returns the default database from the URI
   } catch (error) {
     console.error("❌ MongoDB connection error:", error);
     process.exit(1);
