@@ -20,43 +20,63 @@ function getDb() {
   return db;
 }
 
-// Middleware to authenticate JWT tokens
+async function registerUser(req, res, collectionName, type, nameField) {
+  // Dynamically extract the property specified by 'nameField' (e.g., 'adminName' or 'userName') from req.body
+  const { [nameField]: userNameOrAdminName, password } = req.body;
 
-// Input validation middleware
-function validateUserInput(req, res, next) {
-  const { username, password } = req.body || {};
-  if (
-    typeof username !== "string" ||
-    typeof password !== "string" ||
-    !username.trim() ||
-    !password.trim()
-  ) {
-    return res.status(400).json({ message: "Invalid username or password" });
-  }
-  next();
-}
-
-app.post("/add-user", validateUserInput, async (req, res) => {
-  const { username, password } = req.body;
   try {
-    const users = getDb().collection("users");
-    const existingUser = await users.findOne({ username });
-    if (existingUser) {
-      return res.status(409).json({ message: "Username already exists" });
+    //collection is like a value in SQL table
+    const collection = getDb().collection(collectionName); // Get the MongoDB collection object using the provided collection name
+    const existing = await collection.findOne({
+      [nameField]: userNameOrAdminName,
+    }); // Search for a document in the collection where the field 'nameField' matches the value
+    if (existing) {
+      console.log(`Attempt to register existing ${type}:`, userNameOrAdminName);
+      return res.status(409).json({
+        message: `${
+          type.charAt(0).toUpperCase() + type.slice(1)
+        } already exists`,
+      });
+    } else {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await collection.insertOne({
+        [nameField]: userNameOrAdminName,
+        password: hashedPassword,
+        type: type,
+      });
     }
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await users.insertOne({ username, password: hashedPassword });
-    res.status(201).json({ message: "User registered successfully" });
+    res.status(201).json({
+      message: `${
+        type.charAt(0).toUpperCase() + type.slice(1)
+      } registered successfully`,
+    });
   } catch (err) {
+    console.error("Error in registerUser:", err);
     res.status(500).json({ message: "Server error" });
   }
-});
+}
+
+// Admin registration endpoint
+app.post("/add-admin", (req, res) =>
+  registerUser(req, res, "admins", "admin", "adminName")
+);
+// User registration endpoint
+app.post("/add-user", (req, res) =>
+  registerUser(req, res, "users", "user", "adminName")
+);
 
 async function startServer() {
   try {
     db = await connectDB();
-    // Ensure unique index on username
-    await db.collection("users").createIndex({ username: 1 }, { unique: true });
+    // Ensure unique index on adminName for admins collection
+    await db
+      .collection("admins")
+      .createIndex({ adminName: 1 }, { unique: true });
+    // Ensure unique index on adminName for users collection
+    await db
+      .collection("users")
+      .createIndex({ adminName: 1 }, { unique: true });
+
     app.listen(PORT, () => {
       console.log(`🚀 Server running at http://localhost:${PORT}`);
     });
