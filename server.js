@@ -3,6 +3,9 @@ const connectDB = require("./db");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const JWT = require("jsonwebtoken");
+require("dotenv").config();
+
+const env = process.env.JWT_SECRET;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,18 +23,21 @@ function getDb() {
   return db;
 }
 
-async function registerUser(req, res, collectionName, type, nameField) {
+function getCollection(collectionName) {
+  const db = getDb();
+  return db.collection(collectionName); // Get the MongoDB collection object using the provided collection name
+}
+
+async function registerPoint(req, res, collectionName, type, nameField) {
   // Dynamically extract the property specified by 'nameField' (e.g., 'adminName' or 'userName') from req.body
   const { [nameField]: userNameOrAdminName, password } = req.body;
-
   try {
     //collection is like a value in SQL table
-    const collection = getDb().collection(collectionName); // Get the MongoDB collection object using the provided collection name
+    const collection = getCollection(collectionName);
     const existing = await collection.findOne({
       [nameField]: userNameOrAdminName,
     }); // Search for a document in the collection where the field 'nameField' matches the value
     if (existing) {
-      console.log(`Attempt to register existing ${type}:`, userNameOrAdminName);
       return res.status(409).json({
         message: `${
           type.charAt(0).toUpperCase() + type.slice(1)
@@ -57,12 +63,44 @@ async function registerUser(req, res, collectionName, type, nameField) {
 }
 
 // Admin registration endpoint
-app.post("/add-admin", (req, res) =>
-  registerUser(req, res, "admins", "admin", "adminName")
+app.post("/signup-admin", (req, res) =>
+  registerPoint(req, res, "admins", "admin", "adminName")
 );
 // User registration endpoint
-app.post("/add-user", (req, res) =>
-  registerUser(req, res, "users", "user", "adminName")
+app.post("/signup-user", (req, res) =>
+  registerPoint(req, res, "users", "user", "adminName")
+);
+
+async function loginPoint(req, res, collectionName, nameField) {
+  const { [nameField]: userNameOrAdminName, password } = req.body;
+  try {
+    const collection = getCollection(collectionName);
+    const user = await collection.findOne({ [nameField]: userNameOrAdminName });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid password" });
+    }
+    const token = JWT.sign(
+      { [nameField]: user[nameField], type: user.type },
+      env,
+      { expiresIn: "1h" }
+    );
+    res.json({ token, message: "Login successful" });
+  } catch (err) {
+    console.error(`Error in /login-${collectionName}:`, err);
+    res.status(500).json({ message: "Server error" });
+  }
+}
+
+app.post("/login-admin", (req, res) =>
+  loginPoint(req, res, "admins", "adminName")
+);
+
+app.post("/login-user", (req, res) =>
+  loginPoint(req, res, "users", "adminName")
 );
 
 async function startServer() {
