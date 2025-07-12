@@ -103,6 +103,31 @@ app.post("/login-user", (req, res) =>
   loginPoint(req, res, "users", "adminName")
 );
 
+//remove user or admin from the database
+// Generic remove endpoint for admin/user
+async function removePoint(req, res, collectionName, nameField, type) {
+  const nameValue = req.params[nameField];
+  try {
+    const collection = getCollection(collectionName);
+    const result = await collection.deleteOne({ [nameField]: nameValue });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: `${type} not found` });
+    }
+    res.json({ message: `${type} removed successfully` });
+  } catch (err) {
+    console.error(`Error in remove${type}:`, err);
+    res.status(500).json({ message: "Server error" });
+  }
+}
+
+app.delete("/remove-admin/:adminName", (req, res) =>
+  removePoint(req, res, "admins", "adminName", "Admin")
+);
+
+app.delete("/remove-user/:adminName", (req, res) =>
+  removePoint(req, res, "users", "adminName", "User")
+);
+
 async function startServer() {
   try {
     db = await connectDB();
