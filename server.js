@@ -28,33 +28,79 @@ function getCollection(collectionName) {
   return db.collection(collectionName); // Get the MongoDB collection object using the provided collection name
 }
 
+// async function registerPoint(req, res, collectionName, type, nameField) {
+//   // Dynamically extract the property specified by 'nameField' (e.g., 'adminName' or 'userName') from req.body
+//   const { [nameField]: userNameOrAdminName, password } = req.body;
+//   try {
+//     //collection is like a value in SQL table
+//     const collection = getCollection(collectionName);
+//     const existing = await collection.findOne({
+//       [nameField]: userNameOrAdminName,
+//     }); // Search for a document in the collection where the field 'nameField' matches the value
+//     if (existing) {
+//       return res.status(409).json({
+//         message: `${
+//           type.charAt(0).toUpperCase() + type.slice(1)
+//         } already exists`,
+//       });
+//     } else {
+//       const hashedPassword = await bcrypt.hash(password, 10);
+//       await collection.insertOne({
+//         [nameField]: userNameOrAdminName,
+//         password: hashedPassword,
+//         type: type,
+//       });
+//     }
+//     res.status(201).json({
+//       message: `${
+//         type.charAt(0).toUpperCase() + type.slice(1)
+//       } registered successfully`,
+//     });
+//   } catch (err) {
+//     console.error("Error in registerUser:", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// }
+
+// Admin registration endpoint
+
 async function registerPoint(req, res, collectionName, type, nameField) {
-  // Dynamically extract the property specified by 'nameField' (e.g., 'adminName' or 'userName') from req.body
   const { [nameField]: userNameOrAdminName, password } = req.body;
+
   try {
-    //collection is like a value in SQL table
     const collection = getCollection(collectionName);
     const existing = await collection.findOne({
       [nameField]: userNameOrAdminName,
-    }); // Search for a document in the collection where the field 'nameField' matches the value
+    });
+
     if (existing) {
       return res.status(409).json({
         message: `${
           type.charAt(0).toUpperCase() + type.slice(1)
         } already exists`,
       });
-    } else {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      await collection.insertOne({
-        [nameField]: userNameOrAdminName,
-        password: hashedPassword,
-        type: type,
-      });
     }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await collection.insertOne({
+      [nameField]: userNameOrAdminName,
+      password: hashedPassword,
+      type: type,
+    });
+
+    // ✅ Create JWT token after registration
+    const token = JWT.sign(
+      { [nameField]: userNameOrAdminName, type: type },
+      env,
+      { expiresIn: "1h" }
+    );
+
+    // ✅ Return both message and token
     res.status(201).json({
       message: `${
         type.charAt(0).toUpperCase() + type.slice(1)
       } registered successfully`,
+      token,
     });
   } catch (err) {
     console.error("Error in registerUser:", err);
@@ -62,7 +108,6 @@ async function registerPoint(req, res, collectionName, type, nameField) {
   }
 }
 
-// Admin registration endpoint
 app.post("/signup-admin", (req, res) =>
   registerPoint(req, res, "admins", "admin", "adminName")
 );
@@ -73,22 +118,38 @@ app.post("/signup-user", (req, res) =>
 
 async function loginPoint(req, res, collectionName, nameField) {
   const { [nameField]: userNameOrAdminName, password } = req.body;
+
   try {
     const collection = getCollection(collectionName);
+
     const user = await collection.findOne({ [nameField]: userNameOrAdminName });
-    if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+
+    // ✅ Unified error for both username and password issues
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ message: "Invalid username or password" });
     }
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: "Invalid password" });
-    }
+
+    // ✅ Create JWT token with _id, username/adminName, and type
     const token = JWT.sign(
-      { [nameField]: user[nameField], type: user.type },
+      {
+        id: user._id,
+        [nameField]: user[nameField],
+        type: user.type,
+      },
       env,
       { expiresIn: "1h" }
     );
-    res.json({ token, message: "Login successful" });
+
+    // ✅ Send token + user details in response
+    res.json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user._id,
+        [nameField]: user[nameField],
+        type: user.type,
+      },
+    });
   } catch (err) {
     console.error(`Error in /login-${collectionName}:`, err);
     res.status(500).json({ message: "Server error" });
