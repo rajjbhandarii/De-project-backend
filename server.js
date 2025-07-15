@@ -30,12 +30,9 @@ function getCollection(collectionName) {
 
 async function registerPoint(req, res, collectionName, type, nameField) {
   const { [nameField]: userNameOrAdminName, password } = req.body;
-  console.log(req.body);
 
   try {
     const collection = getCollection(collectionName);
-
-    console.log(`Using collection: ${collectionName}`);
     const existing = await collection.findOne({
       [nameField]: userNameOrAdminName,
     });
@@ -49,7 +46,6 @@ async function registerPoint(req, res, collectionName, type, nameField) {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    console.log(`Registering ${type}:`, userNameOrAdminName, nameField);
     await collection.insertOne({
       [nameField]: userNameOrAdminName,
       password: hashedPassword,
@@ -89,11 +85,7 @@ async function loginPoint(req, res, collectionName, nameField) {
 
   try {
     const collection = getCollection(collectionName);
-    console.log(`Logging in ${nameField}:`, userNameOrAdminName);
-    console.log(`Using collection: ${collectionName}`);
-
     const user = await collection.findOne({ [nameField]: userNameOrAdminName });
-    console.log(`User found: ${user}`);
 
     //  Unified error for both username and password issues
     if (!user || !(await bcrypt.compare(password, user.password))) {
