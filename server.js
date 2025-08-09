@@ -45,10 +45,10 @@ async function registerPoint(req, res, collectionName, type, nameField) {
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // const hashedPassword = await bcrypt.hash(password, 10);
     await collection.insertOne({
       [nameField]: userNameOrAdminName,
-      password: hashedPassword,
+      password,
       type: type,
     });
 
@@ -88,7 +88,10 @@ async function loginPoint(req, res, collectionName, nameField) {
     const user = await collection.findOne({ [nameField]: userNameOrAdminName });
 
     //  Unified error for both username and password issues
-    if (!user || !(await bcrypt.compare(password, user.password))) {
+    // if (!user || !(await bcrypt.compare(password, user.password))) {
+    //   return res.status(401).json({ message: "Invalid username or password" });
+    // }
+    if (!user || user.password !== password) {
       return res.status(401).json({ message: "Invalid username or password" });
     }
 
