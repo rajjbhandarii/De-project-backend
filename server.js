@@ -155,6 +155,61 @@ app.delete("/remove-user/:adminName", (req, res) =>
   removePoint(req, res, "users", "adminName", "User")
 );
 
+app.post("/request-services", async (req, res) => {
+  const {
+    serviceProviderName,
+    clientLocation: userLocation,
+    clientName: userName,
+    serviceCategory,
+  } = req.body;
+  console.log(
+    `Service requested from: ${serviceProviderName}, Location: ${userLocation}, User: ${userName}`
+  );
+  try {
+    // Store the service request in the "serviceRequests" collection
+    const adminsCollection = await getCollection("admins");
+    const modifiedAdminRecord = await adminsCollection.updateOne(
+      { adminName: serviceProviderName },
+      {
+        $push: {
+          serviceRequests: {
+            clientName: userName,
+            clientLocation: userLocation,
+            serviceCategory: serviceCategory,
+          },
+        },
+      }
+    );
+    if (modifiedAdminRecord.matchedCount === 0) {
+      return res.status(404).json({ message: "Service provider not found" });
+    } else {
+      console.log("Service request recorded successfully");
+    }
+  } catch (err) {
+    console.error("Error inserting service request:", err);
+    res.status(500).json({ message: "Failed to process service request" });
+  }
+});
+
+app.post("/fetch-services", async (req, res) => {
+  const { serviceProviderName } = req.body;
+  try {
+    const adminsCollection = await getCollection("admins");
+    const admin = await adminsCollection.findOne(
+      { adminName: serviceProviderName },
+      { projection: { serviceRequests: 1, id: 1 } }
+    );
+    if (!admin) {
+      return res.status(404).json({ message: "Service provider not found" });
+    } else {
+      res.json(admin.serviceRequests);
+    }
+  } catch (err) {
+    console.error("Error fetching services:", err);
+    res.status(500).json({ message: "Failed to fetch services" });
+  }
+});
+
 async function startServer() {
   try {
     db = await connectDB();
