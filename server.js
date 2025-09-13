@@ -30,6 +30,7 @@ function getCollection(collectionName) {
 
 async function registerPoint(req, res, collectionName, type, nameField) {
   const { [nameField]: userNameOrAdminName, password } = req.body;
+  console.log("Registering ", req.body);
 
   try {
     const collection = getCollection(collectionName);
@@ -49,7 +50,7 @@ async function registerPoint(req, res, collectionName, type, nameField) {
     await collection.insertOne({
       [nameField]: userNameOrAdminName,
       password,
-      type: type,
+      serviceType: type,
     });
 
     // Create JWT token after registration
@@ -73,7 +74,7 @@ async function registerPoint(req, res, collectionName, type, nameField) {
 }
 
 app.post("/signup-admin", (req, res) =>
-  registerPoint(req, res, "admins", "admin", "adminName")
+  registerPoint(req, res, "admins", "Towing Service", "adminName")
 );
 
 app.post("/signup-user", (req, res) => {
@@ -191,7 +192,7 @@ app.post("/request-services", async (req, res) => {
   }
 });
 
-app.post("/fetch-services", async (req, res) => {
+app.post("/fetch-servicesRequests", async (req, res) => {
   const { serviceProviderName } = req.body;
   try {
     const adminsCollection = await getCollection("admins");
@@ -207,6 +208,20 @@ app.post("/fetch-services", async (req, res) => {
   } catch (err) {
     console.error("Error fetching services:", err);
     res.status(500).json({ message: "Failed to fetch services" });
+  }
+});
+
+app.get("/fetch-serviceProvider", async (req, res) => {
+  try {
+    const adminsCollection = await getCollection("admins");
+    const adminNames = await adminsCollection
+      .find({}, { projection: { adminName: 1, _id: 0 } })
+      .toArray();
+    console.log(adminNames);
+    res.json(adminNames);
+  } catch (err) {
+    console.error("Error fetching service providers:", err);
+    res.status(500).json({ message: "Failed to fetch service providers" });
   }
 });
 
