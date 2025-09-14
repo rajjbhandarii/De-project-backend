@@ -36,7 +36,6 @@ async function registerPoint(req, res, collectionName, type, nameField) {
     email,
     password,
   } = req.body;
-  console.log("Registering ", req.body);
 
   try {
     const collection = getCollection(collectionName);
@@ -98,20 +97,22 @@ app.post("/signup-user", (req, res) => {
   registerPoint(req, res, "users", "user", "userName");
 });
 
-async function loginPoint(req, res, collectionName, nameField) {
-  const { [emailField]: userOrserviceProviderEmail, password } = req.body;
-
+async function loginPoint(req, res, collectionName, emailField, NameField) {
+  const { [emailField]: userOrServiceProviderEmail, password } = req.body;
   try {
     const collection = getCollection(collectionName);
     const user = await collection.findOne({
-      [emailField]: userOrserviceProviderEmail,
+      [emailField]: userOrServiceProviderEmail,
     });
 
     //  Unified error for both username and password issues
     // if (!user || !(await bcrypt.compare(password, user.password))) {
     //   return res.status(401).json({ message: "Invalid email or password" });
     // }
-    if (!user || user.password !== password) {
+    if (
+      !user.email === userOrServiceProviderEmail ||
+      user.password !== password
+    ) {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
@@ -119,13 +120,14 @@ async function loginPoint(req, res, collectionName, nameField) {
     const token = JWT.sign(
       {
         id: user._id,
-        [nameField]: user[nameField],
+        username: user[NameField] || user[serviceProviderNameField],
         email: user[emailField],
         type: user.type,
       },
       env,
       { expiresIn: "1h" }
     );
+    res.json({ message: "Login successful", token, name: user[NameField] });
   } catch (err) {
     console.error(`Error in /login-${collectionName}:`, err);
     res.status(500).json({ message: "Server error" });
@@ -133,11 +135,11 @@ async function loginPoint(req, res, collectionName, nameField) {
 }
 
 app.post("/login-serviceProvider", (req, res) =>
-  loginPoint(req, res, "serviceProviders", "serviceProviderName")
+  loginPoint(req, res, "serviceProviders", "email", "serviceProviderName")
 );
 
 app.post("/login-user", (req, res) =>
-  loginPoint(req, res, "users", "userName")
+  loginPoint(req, res, "users", "email", "userName")
 );
 
 //remove user or serviceProvider from the database
@@ -178,7 +180,6 @@ app.get("/fetch-serviceProvider", async (req, res) => {
     const serviceProvider = await serviceProvidersCollection
       .find({}, { projection: { email: 1, serviceProviderName: 1, _id: 0 } })
       .toArray();
-    console.log(serviceProvider);
     res.json(serviceProvider);
   } catch (err) {
     console.error("Error fetching service providers:", err);
@@ -194,9 +195,6 @@ app.post("/request-services", async (req, res) => {
     location: userLocation,
     category: serviceCategory,
   } = req.body;
-  console.log(
-    `Service requested from: ${serviceProviderEmail}, Location: ${userLocation}, User: ${userName}, Category: ${serviceCategory}`
-  );
   try {
     // Store the service request in the "serviceRequests" collection
     const serviceProvidersCollection = await getCollection("serviceProviders");
@@ -227,7 +225,6 @@ app.post("/request-services", async (req, res) => {
 //fetch on serviceProvider Dashboard component
 app.post("/fetch-servicesRequests", async (req, res) => {
   const { serviceProviderEmail } = req.body;
-  console.log(`Fetching services for: ${serviceProviderEmail}`);
   try {
     const serviceProvidersCollection = await getCollection("serviceProviders");
     const serviceProvider = await serviceProvidersCollection.findOne(
