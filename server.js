@@ -3,8 +3,7 @@ const connectDB = require("./db");
 const cors = require("cors");
 // const bcrypt = require("bcrypt");
 const JWT = require("jsonwebtoken");
-// const e = require("cors");
-// const { ServerType } = require("mongodb");
+const { ObjectId } = require("mongodb");
 require("dotenv").config();
 
 const env = process.env.JWT_SECRET;
@@ -56,7 +55,6 @@ async function registerPoint(req, res, collectionName, type, nameField) {
       email,
       [nameField]: userNameOrserviceProviderName,
       password,
-      serviceType: type,
     });
 
     // Create JWT token after registration
@@ -64,7 +62,6 @@ async function registerPoint(req, res, collectionName, type, nameField) {
       {
         [nameField]: userNameOrserviceProviderName,
         email: email,
-        ServerType: type,
       },
       env,
       { expiresIn: "1h" }
@@ -174,11 +171,21 @@ app.delete("/remove-user/:serviceProviderName", (req, res) =>
 );
 
 //fetch on user component
-app.get("/fetch-serviceProvider", async (req, res) => {
+app.get("/services/fetch-serviceProvider", async (req, res) => {
   try {
     const serviceProvidersCollection = await getCollection("serviceProviders");
     const serviceProvider = await serviceProvidersCollection
-      .find({}, { projection: { email: 1, serviceProviderName: 1, _id: 0 } })
+      .find(
+        {},
+        {
+          //this will be fetch from database
+          projection: {
+            _id: 1,
+            serviceProviderName: 1,
+            services: 1,
+          },
+        }
+      )
       .toArray();
     res.json(serviceProvider);
   } catch (err) {
@@ -188,33 +195,46 @@ app.get("/fetch-serviceProvider", async (req, res) => {
 });
 
 //fetch on user component
-app.post("/request-services", async (req, res) => {
+app.post("/services/request-services", async (req, res) => {
   const {
-    email: serviceProviderEmail,
-    name: userName,
-    location: userLocation,
-    category: serviceCategory,
+    _id: providerId,
+    userName,
+    userLocation,
+    category,
+    requestServiceId,
   } = req.body;
   try {
-    // Store the service request in the "serviceRequests" collection
+    if (!providerId || !ObjectId.isValid(providerId)) {
+      return res.status(400).json({ message: "Invalid or missing providerId" });
+    }
+    if (!ObjectId.isValid(providerId)) {
+      return res.status(400).json({ message: "Invalid provider ID" });
+    }
+
     const serviceProvidersCollection = await getCollection("serviceProviders");
-    const modifiedserviceProviderRecord =
+
+    const providerObjectId = ObjectId.createFromHexString(providerId);
+    const modifiedServiceProviderRecord =
       await serviceProvidersCollection.updateOne(
-        { email: serviceProviderEmail },
+        { _id: providerObjectId },
         {
           $push: {
             serviceRequestInfo: {
-              userName: userName,
-              location: userLocation,
-              category: serviceCategory,
+              requestServiceId,
+              userName,
+              userLocation,
+              category,
             },
           },
         }
       );
-    if (modifiedserviceProviderRecord.matchedCount === 0) {
+    if (modifiedServiceProviderRecord.matchedCount === 0) {
       return res.status(404).json({ message: "Service provider not found" });
     } else {
       console.log("Service request recorded successfully");
+      res
+        .status(201)
+        .json({ message: "Service request recorded successfully" });
     }
   } catch (err) {
     console.error("Error inserting service request:", err);
@@ -223,7 +243,7 @@ app.post("/request-services", async (req, res) => {
 });
 
 //fetch on serviceProvider Dashboard component
-app.post("/fetch-servicesRequests", async (req, res) => {
+app.post("/dashboard/fetch-servicesRequests", async (req, res) => {
   const { serviceProviderEmail } = req.body;
   try {
     const serviceProvidersCollection = await getCollection("serviceProviders");
@@ -239,6 +259,44 @@ app.post("/fetch-servicesRequests", async (req, res) => {
   } catch (err) {
     console.error("Error fetching services:", err);
     res.status(500).json({ message: "Failed to fetch services" });
+  }
+});
+
+//add new service to database
+app.post("/serviceManagement/addNewServices", async (req, res) => {
+  try {
+    const {
+      serviceId,
+      serviceProviderEmail,
+      name,
+      price,
+      category,
+      description,
+    } = req.body;
+    const serviceProvidersCollection = await getCollection("serviceProviders");
+    const modifiedServiceProviderRecord =
+      await serviceProvidersCollection.updateOne(
+        { email: serviceProviderEmail },
+        {
+          $push: {
+            services: {
+              serviceId,
+              serviceName: name,
+              price: price,
+              category: category,
+              description: description,
+              rating: 4.5,
+            },
+          },
+        }
+      );
+    res.status(201).json({
+      message: "Service added successfully",
+      // serviceId: result.insertedId,
+    });
+  } catch (err) {
+    console.error("Error adding service:", err);
+    res.status(500).json({ message: "Failed to add service" });
   }
 });
 
