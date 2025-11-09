@@ -300,6 +300,26 @@ app.post("/serviceManagement/addNewServices", async (req, res) => {
   }
 });
 
+app.get("/serviceManagement/getServicesCategory", async (req, res) => {
+  const { serviceProviderEmail } = req.query;
+  try {
+    const serviceProvidersCollection = await getCollection("serviceProviders");
+    const services = await serviceProvidersCollection.findOne(
+      { email: serviceProviderEmail },
+      { projection: { services: 1, _id: 1 } }
+    );
+    if (!services) {
+      return res.status(404).json({ message: "Service provider not found" });
+    } else {
+      const servicesList = services.services || [];
+      res.json(servicesList);
+    }
+  } catch (err) {
+    console.error("Error fetching services:", err);
+    res.status(500).json({ message: "Failed to fetch services" });
+  }
+});
+
 async function startServer() {
   try {
     db = await connectDB();
