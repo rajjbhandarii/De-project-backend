@@ -1,3 +1,4 @@
+// server.js (corrected, CommonJS, real-time with Change Streams + Socket.io)
 const express = require("express");
 const connectDB = require("./db");
 const cors = require("cors");
@@ -6,7 +7,11 @@ const JWT = require("jsonwebtoken");
 const { ObjectId } = require("mongodb");
 require("dotenv").config();
 
-const env = process.env.JWT_SECRET;
+const http = require("http");
+const { Server } = require("socket.io");
+const { platform } = require("os");
+
+const env = process.env.JWT_SECRET || "secret";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,21 +19,51 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-let db;
+let db; // will hold the connected DB instance
+
+// --- REAL-TIME / SOCKET.IO SETUP (single instance) ---
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
+// Map to store provider email -> Set of socketIds
+const providerSockets = new Map();
+
+// Socket connection handlers
+io.on("connection", (socket) => {
+  console.log("🔌 Socket connected:", socket.id);
+
+  socket.on("registerProvider", (email) => {
+    if (!email) return;
+    const set = providerSockets.get(email) || new Set();
+    set.add(socket.id);
+    providerSockets.set(email, set);
+    console.log("🟩 Provider registered:", email, "->", socket.id);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("🔴 Socket disconnected:", socket.id);
+    for (const [email, set] of providerSockets.entries()) {
+      if (set.has(socket.id)) {
+        set.delete(socket.id);
+        if (set.size === 0) providerSockets.delete(email);
+        else providerSockets.set(email, set);
+      }
+    }
+  });
+});
 
 // Helper to get the established DB connection
 function getDb() {
-  if (!db) {
-    throw new Error("Database not connected");
-  }
+  if (!db) throw new Error("Database not connected");
   return db;
 }
-
 function getCollection(collectionName) {
-  const db = getDb();
-  return db.collection(collectionName); // Get the MongoDB collection object using the provided collection name
+  return getDb().collection(collectionName);
 }
 
+/* ---------------------------
+   Registration endpoint (generic)
+----------------------------*/
 async function registerPoint(req, res, collectionName, type, nameField) {
   const {
     [nameField]: userNameOrserviceProviderName,
@@ -36,11 +71,13 @@ async function registerPoint(req, res, collectionName, type, nameField) {
     password,
   } = req.body;
 
+  if (!email || !password || !userNameOrserviceProviderName) {
+    return res.status(400).json({ message: "Missing fields" });
+  }
+
   try {
     const collection = getCollection(collectionName);
-    const existing = await collection.findOne({
-      email: email,
-    });
+    const existing = await collection.findOne({ email });
 
     if (existing) {
       return res.status(409).json({
@@ -57,17 +94,12 @@ async function registerPoint(req, res, collectionName, type, nameField) {
       password,
     });
 
-    // Create JWT token after registration
     const token = JWT.sign(
-      {
-        [nameField]: userNameOrserviceProviderName,
-        email: email,
-      },
+      { [nameField]: userNameOrserviceProviderName, email },
       env,
       { expiresIn: "1h" }
     );
 
-    //  Return both message and token
     res.status(201).json({
       message: `${
         type.charAt(0).toUpperCase() + type.slice(1)
@@ -90,41 +122,37 @@ app.post("/signup-serviceProvider", (req, res) =>
   )
 );
 
-app.post("/signup-user", (req, res) => {
-  registerPoint(req, res, "users", "user", "userName");
-});
+app.post("/signup-user", (req, res) =>
+  registerPoint(req, res, "users", "user", "userName")
+);
 
-async function loginPoint(req, res, collectionName, emailField, NameField) {
-  const { [emailField]: userOrServiceProviderEmail, password } = req.body;
+/* ---------------------------
+   Login endpoint (generic)
+----------------------------*/
+async function loginPoint(req, res, collectionName, emailField, nameField) {
+  const { [emailField]: providedEmail, password } = req.body;
+
   try {
     const collection = getCollection(collectionName);
-    const user = await collection.findOne({
-      [emailField]: userOrServiceProviderEmail,
-    });
+    const user = await collection.findOne({ [emailField]: providedEmail });
 
-    //  Unified error for both username and password issues
-    // if (!user || !(await bcrypt.compare(password, user.password))) {
-    //   return res.status(401).json({ message: "Invalid email or password" });
-    // }
-    if (
-      !user.email === userOrServiceProviderEmail ||
-      user.password !== password
-    ) {
+    // Basic validation: user exists and password matches
+    if (!user || user.password !== password) {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    //  Create JWT token with _id, username/serviceProviderName, and type
     const token = JWT.sign(
       {
         id: user._id,
-        username: user[NameField] || user[serviceProviderNameField],
+        username: user[nameField],
         email: user[emailField],
         type: user.type,
       },
       env,
       { expiresIn: "1h" }
     );
-    res.json({ message: "Login successful", token, name: user[NameField] });
+
+    res.json({ message: "Login successful", token, name: user[nameField] });
   } catch (err) {
     console.error(`Error in /login-${collectionName}:`, err);
     res.status(500).json({ message: "Server error" });
@@ -139,8 +167,9 @@ app.post("/login-user", (req, res) =>
   loginPoint(req, res, "users", "email", "userName")
 );
 
-//remove user or serviceProvider from the database
-// Generic remove endpoint for serviceProvider/user
+/* ---------------------------
+   Remove endpoints
+----------------------------*/
 async function removePoint(req, res, collectionName, nameField, type) {
   const nameValue = req.params[nameField];
   try {
@@ -166,19 +195,20 @@ app.delete("/remove-serviceProvider/:serviceProviderName", (req, res) =>
   )
 );
 
-app.delete("/remove-user/:serviceProviderName", (req, res) =>
-  removePoint(req, res, "users", "serviceProviderceProviderName", "User")
+app.delete("/remove-user/:userName", (req, res) =>
+  removePoint(req, res, "users", "userName", "User")
 );
 
-//fetch on user component
+/* ---------------------------
+   Public fetches
+----------------------------*/
 app.get("/services/fetch-serviceProvider", async (req, res) => {
   try {
-    const serviceProvidersCollection = await getCollection("serviceProviders");
+    const serviceProvidersCollection = getCollection("serviceProviders");
     const serviceProvider = await serviceProvidersCollection
       .find(
         {},
         {
-          //this will be fetch from database
           projection: {
             _id: 1,
             serviceProviderName: 1,
@@ -194,7 +224,10 @@ app.get("/services/fetch-serviceProvider", async (req, res) => {
   }
 });
 
-//fetch on user component
+/* ---------------------------
+   User requests a service (push to provider)
+   This route updates DB and emits realtime update
+----------------------------*/
 app.post("/services/request-services", async (req, res) => {
   const {
     _id: providerId,
@@ -203,97 +236,102 @@ app.post("/services/request-services", async (req, res) => {
     category,
     requestServiceId,
   } = req.body;
+
   try {
     if (!providerId || !ObjectId.isValid(providerId)) {
       return res.status(400).json({ message: "Invalid or missing providerId" });
     }
-    if (!ObjectId.isValid(providerId)) {
-      return res.status(400).json({ message: "Invalid provider ID" });
-    }
 
-    const serviceProvidersCollection = await getCollection("serviceProviders");
+    const col = getCollection("serviceProviders");
 
-    const providerObjectId = ObjectId.createFromHexString(providerId);
-    const modifiedServiceProviderRecord =
-      await serviceProvidersCollection.updateOne(
-        { _id: providerObjectId },
-        {
-          $push: {
-            serviceRequestInfo: {
-              requestServiceId,
-              userName,
-              userLocation,
-              category,
-            },
+    const providerObjectId = new ObjectId(String(providerId));
+
+    const updateResult = await col.updateOne(
+      { _id: providerObjectId },
+      {
+        $push: {
+          serviceRequestInfo: {
+            requestServiceId,
+            userName,
+            userLocation,
+            category,
+            createdAt: new Date(),
           },
-        }
-      );
-    if (modifiedServiceProviderRecord.matchedCount === 0) {
+        },
+      }
+    );
+
+    if (updateResult.matchedCount === 0) {
       return res.status(404).json({ message: "Service provider not found" });
-    } else {
-      console.log("Service request recorded successfully");
-      res
-        .status(201)
-        .json({ message: "Service request recorded successfully" });
     }
+
+    // Note: Real-time notification will be handled automatically by MongoDB Change Stream
+    // No need to manually emit here as the changeStream listener will detect this update
+
+    return res
+      .status(201)
+      .json({ message: "Service request recorded successfully" });
   } catch (err) {
     console.error("Error inserting service request:", err);
     res.status(500).json({ message: "Failed to process service request" });
   }
 });
 
-//fetch on serviceProvider Dashboard component
+/* ---------------------------
+   Provider dashboard initial fetch
+----------------------------*/
 app.post("/dashboard/fetch-servicesRequests", async (req, res) => {
   const { serviceProviderEmail } = req.body;
   try {
-    const serviceProvidersCollection = await getCollection("serviceProviders");
-    const serviceProvider = await serviceProvidersCollection.findOne(
+    if (!serviceProviderEmail)
+      return res.status(400).json({ message: "Missing email" });
+
+    const col = getCollection("serviceProviders");
+    const provider = await col.findOne(
       { email: serviceProviderEmail },
-      { projection: { serviceRequestInfo: 1, id: 1 } }
+      { projection: { serviceRequestInfo: 1 } }
     );
-    if (!serviceProvider) {
+
+    if (!provider)
       return res.status(404).json({ message: "Service provider not found" });
-    } else {
-      res.json(serviceProvider.serviceRequestInfo);
-    }
+
+    res.json(provider.serviceRequestInfo || []);
   } catch (err) {
     console.error("Error fetching services:", err);
     res.status(500).json({ message: "Failed to fetch services" });
   }
 });
 
-//add new service to database
+/* ---------------------------
+   Service management (add service)
+----------------------------*/
 app.post("/serviceManagement/addNewServices", async (req, res) => {
   try {
     const {
       serviceId,
       serviceProviderEmail,
-      name,
+      serviceName,
       price,
       category,
       description,
     } = req.body;
-    const serviceProvidersCollection = await getCollection("serviceProviders");
-    const modifiedServiceProviderRecord =
-      await serviceProvidersCollection.updateOne(
-        { email: serviceProviderEmail },
-        {
-          $push: {
-            services: {
-              serviceId,
-              serviceName: name,
-              price: price,
-              category: category,
-              description: description,
-              rating: 4.5,
-            },
+    const col = getCollection("serviceProviders");
+    await col.updateOne(
+      { email: serviceProviderEmail },
+      {
+        $push: {
+          services: {
+            serviceId,
+            serviceName,
+            price,
+            category,
+            description,
+            rating: 4.5,
           },
-        }
-      );
-    res.status(201).json({
-      message: "Service added successfully",
-      // serviceId: result.insertedId,
-    });
+        },
+      }
+    );
+    res.status(201).json({ message: "Service added successfully" });
   } catch (err) {
     console.error("Error adding service:", err);
     res.status(500).json({ message: "Failed to add service" });
@@ -303,38 +341,83 @@ app.post("/serviceManagement/addNewServices", async (req, res) => {
 app.get("/serviceManagement/getServicesCategory", async (req, res) => {
   const { serviceProviderEmail } = req.query;
   try {
-    const serviceProvidersCollection = await getCollection("serviceProviders");
-    const services = await serviceProvidersCollection.findOne(
+    const col = getCollection("serviceProviders");
+    const services = await col.findOne(
       { email: serviceProviderEmail },
       { projection: { services: 1, _id: 1 } }
     );
-    if (!services) {
+    if (!services)
       return res.status(404).json({ message: "Service provider not found" });
-    } else {
-      const servicesList = services.services || [];
-      res.json(servicesList);
-    }
+    res.json(services.services || []);
   } catch (err) {
     console.error("Error fetching services:", err);
     res.status(500).json({ message: "Failed to fetch services" });
   }
 });
 
+/* ---------------------------
+   Start server and setup change stream
+----------------------------*/
 async function startServer() {
   try {
     db = await connectDB();
-    // Ensure unique index on serviceProviderName for serviceProviders collection
+    console.log("📦 Connected to MongoDB");
+
+    const col = db.collection("serviceProviders");
+
+    // Ensure unique indexes
     await db
       .collection("serviceProviders")
       .createIndex({ email: 1 }, { unique: true });
-    // Ensure unique index on email for users collection
     await db.collection("users").createIndex({ email: 1 }, { unique: true });
 
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running at http://localhost:${PORT}`);
+    // Start watching change stream for real-time DB updates
+    const changeStream = col.watch([], { fullDocument: "updateLookup" });
+    console.log("🔍 Change stream listening on serviceProviders collection");
+
+    changeStream.on("change", (change) => {
+      try {
+        // we care about inserts/updates/replaces (anything that can change serviceRequestInfo)
+        if (
+          change.operationType === "update" ||
+          change.operationType === "replace" ||
+          change.operationType === "insert"
+        ) {
+          const doc = change.fullDocument;
+          if (!doc || !doc.email) return;
+
+          const sockets = providerSockets.get(doc.email);
+          if (sockets && sockets.size > 0) {
+            const payload = doc.serviceRequestInfo || [];
+            for (const sid of sockets) {
+              io.to(sid).emit("serviceRequestUpdated", payload);
+              console.log("paylode", payload);
+              // io.to(sid).emit("serviceProviderUpdated", payload);
+            }
+            console.log("⚡ Emitted changeStream update to", doc.email);
+          } else {
+            console.log(
+              "Change detected for",
+              doc.email,
+              "but no connected sockets"
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Error handling change event:", err);
+      }
+    });
+
+    // handle change stream errors (optional: add retry/backoff in production)
+    changeStream.on("error", (err) => {
+      console.error("Change stream error:", err);
+    });
+
+    server.listen(PORT, () => {
+      console.log(`🚀 Real-time server running at http://localhost:${PORT}`);
     });
   } catch (error) {
-    console.error("Failed to connect to MongoDB:", error);
+    console.error("Failed to connect to MongoDB or start server:", error);
     process.exit(1);
   }
 }
