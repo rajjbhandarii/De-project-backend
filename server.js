@@ -34,9 +34,12 @@ io.on("connection", (socket) => {
 
   socket.on("registerProvider", (email) => {
     if (!email) return;
-    const set = providerSockets.get(email) || new Set();
-    set.add(socket.id);
-    providerSockets.set(email, set);
+    const set = providerSockets.get(email);
+    if (set) {
+      set.add(socket.id);
+    } else {
+      providerSockets.set(email, new Set([socket.id]));
+    }
     console.log("🟩 Provider registered:", email, "->", socket.id);
   });
 
@@ -224,10 +227,6 @@ app.get("/services/fetch-serviceProvider", async (req, res) => {
   }
 });
 
-/* ---------------------------
-   User requests a service (push to provider)
-   This route updates DB and emits realtime update
-----------------------------*/
 app.post("/services/request-services", async (req, res) => {
   const {
     _id: providerId,
@@ -264,9 +263,6 @@ app.post("/services/request-services", async (req, res) => {
     if (updateResult.matchedCount === 0) {
       return res.status(404).json({ message: "Service provider not found" });
     }
-
-    // Note: Real-time notification will be handled automatically by MongoDB Change Stream
-    // No need to manually emit here as the changeStream listener will detect this update
 
     return res
       .status(201)
@@ -371,48 +367,90 @@ async function startServer() {
       .createIndex({ email: 1 }, { unique: true });
     await db.collection("users").createIndex({ email: 1 }, { unique: true });
 
-    // Start watching change stream for real-time DB updates
-    const changeStream = col.watch([], { fullDocument: "updateLookup" });
-    console.log("🔍 Change stream listening on serviceProviders collection");
-
-    changeStream.on("change", (change) => {
+    // Start watching change stream for real-time DB updates with error handling and reconnection logic
+    function setupChangeStream(retryCount = 0) {
+      let changeStream;
       try {
-        // we care about inserts/updates/replaces (anything that can change serviceRequestInfo)
-        if (
-          change.operationType === "update" ||
-          change.operationType === "replace" ||
-          change.operationType === "insert"
-        ) {
-          const doc = change.fullDocument;
-          if (!doc || !doc.email) return;
-
-          const sockets = providerSockets.get(doc.email);
-          if (sockets && sockets.size > 0) {
-            const payload = doc.serviceRequestInfo || [];
-            for (const sid of sockets) {
-              io.to(sid).emit("serviceRequestUpdated", payload);
-              console.log("paylode", payload);
-              // io.to(sid).emit("serviceProviderUpdated", payload);
-            }
-            console.log("⚡ Emitted changeStream update to", doc.email);
-          } else {
-            console.log(
-              "Change detected for",
-              doc.email,
-              "but no connected sockets"
-            );
-          }
-        }
+        changeStream = col.watch([], { fullDocument: "updateLookup" });
+        console.log(
+          "🔍 Change stream listening on serviceProviders collection"
+        );
       } catch (err) {
-        console.error("Error handling change event:", err);
+        console.error("Failed to initialize change stream:", err);
+        // Retry with exponential backoff, max 5 attempts
+        if (retryCount < 5) {
+          const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
+          console.log(`Retrying change stream initialization in ${delay}ms...`);
+          setTimeout(() => setupChangeStream(retryCount + 1), delay);
+        } else {
+          console.error(
+            "Max retries reached. Change stream will not be initialized."
+          );
+        }
+        return;
       }
-    });
 
-    // handle change stream errors (optional: add retry/backoff in production)
-    changeStream.on("error", (err) => {
-      console.error("Change stream error:", err);
-    });
+      changeStream.on("change", (change) => {
+        try {
+          // we care about inserts/updates/replaces (anything that can change serviceRequestInfo)
+          if (
+            change.operationType === "update" ||
+            change.operationType === "replace" ||
+            change.operationType === "insert"
+          ) {
+            const doc = change.fullDocument;
+            console.log("doc", doc);
+            if (!doc || !doc.email) return;
+            const sockets = providerSockets.get(doc.email);
+            if (sockets && sockets.size > 0) {
+              const payload = doc.serviceRequestInfo || [];
+              for (const socketId of sockets) {
+                io.to(socketId).emit(
+                  "serviceRequestUpdated/provider-dashboard",
+                  payload
+                );
+              }
+              console.log("⚡ Emitted changeStream update to", doc.email);
+            } else {
+              console.log(
+                "Change detected for",
+                doc.email,
+                "but no connected sockets"
+              );
+            }
+          }
+        } catch (err) {
+          console.error("Error handling change event:", err);
+        }
+      });
 
+      // handle change stream errors and attempt to reconnect
+      changeStream.on("error", (err) => {
+        console.error("Change stream error:", err);
+        try {
+          changeStream.close();
+        } catch (closeErr) {
+          console.error("Error closing change stream:", closeErr);
+        }
+        // Retry with exponential backoff, max 5 attempts
+        const nextRetry = Math.min(retryCount + 1, 5);
+        const delay = Math.min(1000 * Math.pow(2, nextRetry), 10000);
+        console.log(
+          `Attempting to re-establish change stream in ${delay}ms...`
+        );
+        setTimeout(() => setupChangeStream(nextRetry), delay);
+      });
+
+      // Optionally handle 'close' event (MongoDB driver >=4.0)
+      if (typeof changeStream.on === "function") {
+        changeStream.on("close", () => {
+          console.warn("Change stream closed. Attempting to re-establish...");
+          setTimeout(() => setupChangeStream(retryCount + 1), 1000);
+        });
+      }
+    }
+
+    setupChangeStream();
     server.listen(PORT, () => {
       console.log(`🚀 Real-time server running at http://localhost:${PORT}`);
     });
