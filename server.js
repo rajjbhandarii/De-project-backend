@@ -1,17 +1,15 @@
-// server.js (corrected, CommonJS, real-time with Change Streams + Socket.io)
-const express = require("express");
-const connectDB = require("./db");
-const cors = require("cors");
-// const bcrypt = require("bcrypt");
-const JWT = require("jsonwebtoken");
-const { ObjectId } = require("mongodb");
-require("dotenv").config();
+import express from "express";
+import connectDB from "./db.js";
+import cors from "cors";
+import JWT from "jsonwebtoken";
+import http from "http";
+import { Server } from "socket.io";
+import { ObjectId } from "mongodb";
+import dotenv from "dotenv";
 
-const http = require("http");
-const { Server } = require("socket.io");
-const { platform } = require("os");
+dotenv.config();
 
-const env = process.env.JWT_SECRET || "secret";
+const env = process.env.JWT_SECRET || "iuehdkif83br6w3bnskxJ9jT";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,7 +26,7 @@ const io = new Server(server, { cors: { origin: "*" } });
 // Map to store provider email -> Set of socketIds
 const providerSockets = new Map();
 
-// Socket connection handlers
+// Socket connection handlers for webhook updates to update the UI in real-time
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
@@ -60,8 +58,8 @@ function getDb() {
   if (!db) throw new Error("Database not connected");
   return db;
 }
-function getCollection(collectionName) {
-  return getDb().collection(collectionName);
+async function getCollection(collectionName) {
+  return (await getDb()).collection(collectionName);
 }
 
 /* ---------------------------
@@ -79,7 +77,7 @@ async function registerPoint(req, res, collectionName, type, nameField) {
   }
 
   try {
-    const collection = getCollection(collectionName);
+    const collection = await getCollection(collectionName);
     const existing = await collection.findOne({ email });
 
     if (existing) {
@@ -136,7 +134,7 @@ async function loginPoint(req, res, collectionName, emailField, nameField) {
   const { [emailField]: providedEmail, password } = req.body;
 
   try {
-    const collection = getCollection(collectionName);
+    const collection = await getCollection(collectionName);
     const user = await collection.findOne({ [emailField]: providedEmail });
 
     // Basic validation: user exists and password matches
@@ -176,7 +174,7 @@ app.post("/login-user", (req, res) =>
 async function removePoint(req, res, collectionName, nameField, type) {
   const nameValue = req.params[nameField];
   try {
-    const collection = getCollection(collectionName);
+    const collection = await getCollection(collectionName);
     const result = await collection.deleteOne({ [nameField]: nameValue });
     if (result.deletedCount === 0) {
       return res.status(404).json({ message: `${type} not found` });
@@ -207,7 +205,7 @@ app.delete("/remove-user/:userName", (req, res) =>
 ----------------------------*/
 app.get("/services/fetch-serviceProvider", async (req, res) => {
   try {
-    const serviceProvidersCollection = getCollection("serviceProviders");
+    const serviceProvidersCollection = await getCollection("serviceProviders");
     const serviceProvider = await serviceProvidersCollection
       .find(
         {},
@@ -241,7 +239,7 @@ app.post("/services/request-services", async (req, res) => {
       return res.status(400).json({ message: "Invalid or missing providerId" });
     }
 
-    const col = getCollection("serviceProviders");
+    const col = await getCollection("serviceProviders");
 
     const providerObjectId = new ObjectId(String(providerId));
 
@@ -279,17 +277,19 @@ app.post("/services/request-services", async (req, res) => {
 app.post("/dashboard/fetch-servicesRequests", async (req, res) => {
   const { serviceProviderEmail } = req.body;
   try {
-    if (!serviceProviderEmail)
+    if (!serviceProviderEmail) {
       return res.status(400).json({ message: "Missing email" });
+    }
 
-    const col = getCollection("serviceProviders");
+    const col = await getCollection("serviceProviders");
     const provider = await col.findOne(
       { email: serviceProviderEmail },
       { projection: { serviceRequestInfo: 1 } }
     );
 
-    if (!provider)
+    if (!provider) {
       return res.status(404).json({ message: "Service provider not found" });
+    }
 
     res.json(provider.serviceRequestInfo || []);
   } catch (err) {
@@ -311,7 +311,7 @@ app.post("/serviceManagement/addNewServices", async (req, res) => {
       category,
       description,
     } = req.body;
-    const col = getCollection("serviceProviders");
+    const col = await getCollection("serviceProviders");
     await col.updateOne(
       { email: serviceProviderEmail },
       {
@@ -337,7 +337,7 @@ app.post("/serviceManagement/addNewServices", async (req, res) => {
 app.get("/serviceManagement/getServicesCategory", async (req, res) => {
   const { serviceProviderEmail } = req.query;
   try {
-    const col = getCollection("serviceProviders");
+    const col = await getCollection("serviceProviders");
     const services = await col.findOne(
       { email: serviceProviderEmail },
       { projection: { services: 1, _id: 1 } }
