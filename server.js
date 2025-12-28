@@ -30,24 +30,50 @@ const providerSockets = new Map();
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
-  socket.on("registerProvider", (email) => {
-    if (!email) return;
-    const set = providerSockets.get(email);
-    if (set) {
-      set.add(socket.id);
+  socket.on("registerProvider", (email, component) => {
+    if (!email || !component) return;
+
+    // Use component as key if it's "service", otherwise use email
+    // const mapKey = component === "service" ? component : email;
+    const mapKey = component;
+    if (providerSockets.has(mapKey)) {
+      // If entry exists, add socket.id to the array if not already present
+      const existingData = providerSockets.get(mapKey);
+      if (!existingData.socketId.includes(socket.id)) {
+        existingData.socketId.push(socket.id);
+      }
     } else {
-      providerSockets.set(email, new Set([socket.id]));
+      // Create new entry with socket.id in an array
+      const providerData = {
+        socketId: [socket.id],
+        email,
+        component,
+      };
+      providerSockets.set(mapKey, providerData);
     }
-    console.log("🟩 Provider registered:", email, "->", socket.id);
+
+    console.log(
+      "🟩 Provider registered:",
+      email,
+      "->",
+      socket.id,
+      `(${component})`
+    );
+    console.log("Current providerSockets map:", providerSockets);
   });
 
   socket.on("disconnect", () => {
     console.log("🔴 Socket disconnected:", socket.id);
-    for (const [email, set] of providerSockets.entries()) {
-      if (set.has(socket.id)) {
-        set.delete(socket.id);
-        if (set.size === 0) providerSockets.delete(email);
-        else providerSockets.set(email, set);
+    for (const [mapKey, provider] of providerSockets.entries()) {
+      const index = provider.socketId.indexOf(socket.id);
+      if (index !== -1) {
+        provider.socketId.splice(index, 1);
+        // Remove entry if no sockets remain
+        if (provider.socketId.length === 0) {
+          providerSockets.delete(mapKey);
+        }
+        console.log("Provider removed on disconnect:", mapKey);
+        break;
       }
     }
   });
@@ -274,7 +300,7 @@ app.post("/services/request-services", async (req, res) => {
 /* ---------------------------
    Provider dashboard initial fetch
 ----------------------------*/
-app.post("/dashboard/fetch-servicesRequests", async (req, res) => {
+app.post("/SP-dashboard/fetch-servicesRequests", async (req, res) => {
   const { serviceProviderEmail } = req.body;
   try {
     if (!serviceProviderEmail) {
@@ -288,7 +314,7 @@ app.post("/dashboard/fetch-servicesRequests", async (req, res) => {
     );
 
     if (!provider) {
-      return res.status(404).json({ message: "Service provider not found" });
+      return res.status(404).json({ message: "Service providerr not found" });
     }
 
     res.json(provider.serviceRequestInfo || []);
@@ -371,7 +397,7 @@ async function startServer() {
     function setupChangeStream(retryCount = 0) {
       let changeStream;
       try {
-        changeStream = col.watch([], { fullDocument: "updateLookup" });
+        changeStream = col.watch();
         console.log(
           "🔍 Change stream listening on serviceProviders collection"
         );
@@ -390,33 +416,76 @@ async function startServer() {
         return;
       }
 
-      changeStream.on("change", (change) => {
+      changeStream.on("change", async (change) => {
         try {
+          const updatedFields = change.updateDescription?.updatedFields || {};
+          console.log("Change detected:", updatedFields);
           // we care about inserts/updates/replaces (anything that can change serviceRequestInfo)
           if (
             change.operationType === "update" ||
             change.operationType === "replace" ||
             change.operationType === "insert"
           ) {
-            const doc = change.fullDocument;
-            console.log("doc", doc);
-            if (!doc || !doc.email) return;
-            const sockets = providerSockets.get(doc.email);
-            if (sockets && sockets.size > 0) {
-              const payload = doc.serviceRequestInfo || [];
-              for (const socketId of sockets) {
-                io.to(socketId).emit(
-                  "serviceRequestUpdated/provider-dashboard",
-                  payload
-                );
+            if (
+              Object.keys(updatedFields).some((key) =>
+                key.startsWith("serviceRequestInfo.")
+              )
+            ) {
+              for (const path in updatedFields) {
+                const sockets = providerSockets.get("SP-dashboard");
+                const payload = [updatedFields[path]];
+                sockets.socketId.forEach((socketId) => {
+                  io.to(socketId).emit(
+                    "serviceRequestUpdated/providerDashboard",
+                    payload
+                  );
+                  console.log(
+                    "⚡ Emitted serviceRequestInfo update to SP-dashboard"
+                  );
+                });
               }
-              console.log("⚡ Emitted changeStream update to", doc.email);
-            } else {
-              console.log(
-                "Change detected for",
-                doc.email,
-                "but no connected sockets"
-              );
+            } else if (
+              Object.keys(updatedFields).some((key) =>
+                key.startsWith("services.")
+              )
+            ) {
+              for (const path in updatedFields) {
+                const value = updatedFields[path];
+                const sockets = providerSockets.get("service");
+                const serviceProvidersCollection = await getCollection(
+                  "serviceProviders"
+                );
+                const serviceProviderDetail =
+                  await serviceProvidersCollection.findOne(
+                    { email: sockets.email },
+                    { projection: { serviceProviderName: 1, _id: 1 } }
+                  );
+                const payload = [
+                  {
+                    _id: serviceProviderDetail._id.toString(),
+                    serviceProviderName:
+                      serviceProviderDetail.serviceProviderName,
+                    services: [
+                      {
+                        serviceId: value.serviceId,
+                        serviceName: value.serviceName,
+                        price: value.price,
+                        category: value.category,
+                        description: value.description,
+                        rating: value.rating,
+                      },
+                    ],
+                  },
+                ];
+                sockets.socketId.forEach((socketId) => {
+                  io.to(socketId).emit(
+                    "services/updateServiceProviders",
+                    payload
+                  );
+                  console.log("socket is trigred");
+                });
+                console.log("⚡ Emitted services update to service component");
+              }
             }
           }
         } catch (err) {
@@ -451,6 +520,7 @@ async function startServer() {
     }
 
     setupChangeStream();
+
     server.listen(PORT, () => {
       console.log(`🚀 Real-time server running at http://localhost:${PORT}`);
     });
