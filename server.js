@@ -420,18 +420,15 @@ async function startServer() {
 
               if (!provider?.email) return;
 
-              io.to(`provider:services:${provider.email}`).emit(
-                "servicesUpdated",
-                [
-                  {
-                    providerId: provider._id.toString(),
-                    serviceProviderName: provider.serviceProviderName,
-                    service: [newService],
-                  },
-                ]
-              );
+              io.to(`user:services:${provider.email}`).emit("servicesUpdated", [
+                {
+                  providerId: provider._id.toString(),
+                  serviceProviderName: provider.serviceProviderName,
+                  service: [newService],
+                },
+              ]);
               console.log(
-                `⚡ Service update sent to provider:services:${provider.email}`
+                `⚡ Service update sent to user:services:${provider.email}`
               );
             }
           }
