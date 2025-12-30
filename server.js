@@ -23,59 +23,18 @@ let db; // will hold the connected DB instance
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// Map to store provider email -> Set of socketIds
-const providerSockets = new Map();
-
 // Socket connection handlers for webhook updates to update the UI in real-time
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
-  socket.on("registerProvider", (email, component) => {
-    if (!email || !component) return;
-
-    // Use component as key if it's "service", otherwise use email
-    // const mapKey = component === "service" ? component : email;
-    const mapKey = component;
-    if (providerSockets.has(mapKey)) {
-      // If entry exists, add socket.id to the array if not already present
-      const existingData = providerSockets.get(mapKey);
-      if (!existingData.socketId.includes(socket.id)) {
-        existingData.socketId.push(socket.id);
-      }
-    } else {
-      // Create new entry with socket.id in an array
-      const providerData = {
-        socketId: [socket.id],
-        email,
-        component,
-      };
-      providerSockets.set(mapKey, providerData);
-    }
-
-    console.log(
-      "🟩 Provider registered:",
-      email,
-      "->",
-      socket.id,
-      `(${component})`
-    );
-    console.log("Current providerSockets map:", providerSockets);
+  socket.on("join-room", ({ room }) => {
+    if (!room) return;
+    socket.join(room);
+    console.log(`🟢 Socket ${socket.id} joined room: ${room}`);
   });
 
   socket.on("disconnect", () => {
     console.log("🔴 Socket disconnected:", socket.id);
-    for (const [mapKey, provider] of providerSockets.entries()) {
-      const index = provider.socketId.indexOf(socket.id);
-      if (index !== -1) {
-        provider.socketId.splice(index, 1);
-        // Remove entry if no sockets remain
-        if (provider.socketId.length === 0) {
-          providerSockets.delete(mapKey);
-        }
-        console.log("Provider removed on disconnect:", mapKey);
-        break;
-      }
-    }
   });
 });
 
@@ -419,7 +378,6 @@ async function startServer() {
       changeStream.on("change", async (change) => {
         try {
           const updatedFields = change.updateDescription?.updatedFields || {};
-          console.log("Change detected:", updatedFields);
           // we care about inserts/updates/replaces (anything that can change serviceRequestInfo)
           if (
             change.operationType === "update" ||
@@ -427,65 +385,54 @@ async function startServer() {
             change.operationType === "insert"
           ) {
             if (
-              Object.keys(updatedFields).some((key) =>
-                key.startsWith("serviceRequestInfo.")
+              change.operationType === "update" &&
+              Object.keys(updatedFields).some((k) =>
+                k.startsWith("serviceRequestInfo.")
               )
             ) {
-              for (const path in updatedFields) {
-                const sockets = providerSockets.get("SP-dashboard");
-                const payload = [updatedFields[path]];
-                sockets.socketId.forEach((socketId) => {
-                  io.to(socketId).emit(
-                    "serviceRequestUpdated/providerDashboard",
-                    payload
-                  );
-                  console.log(
-                    "⚡ Emitted serviceRequestInfo update to SP-dashboard"
-                  );
-                });
-              }
+              const newRequest = Object.values(updatedFields)[0];
+
+              // 🔑 Fetch provider email (needed for room)
+              const provider = await col.findOne(
+                { _id: change.documentKey._id },
+                { projection: { email: 1 } }
+              );
+
+              if (!provider?.email) return;
+
+              io.to(`provider:dashboard:${provider.email}`).emit(
+                "serviceRequestUpdated",
+                newRequest
+              );
+
+              console.log(
+                `⚡ Service request sent to provider:dashboard:${provider.email}`
+              );
             } else if (
-              Object.keys(updatedFields).some((key) =>
-                key.startsWith("services.")
-              )
+              Object.keys(updatedFields).some((k) => k.startsWith("services."))
             ) {
-              for (const path in updatedFields) {
-                const value = updatedFields[path];
-                const sockets = providerSockets.get("service");
-                const serviceProvidersCollection = await getCollection(
-                  "serviceProviders"
-                );
-                const serviceProviderDetail =
-                  await serviceProvidersCollection.findOne(
-                    { email: sockets.email },
-                    { projection: { serviceProviderName: 1, _id: 1 } }
-                  );
-                const payload = [
+              const newService = Object.values(updatedFields)[0];
+
+              const provider = await col.findOne(
+                { _id: change.documentKey._id },
+                { projection: { email: 1, serviceProviderName: 1 } }
+              );
+
+              if (!provider?.email) return;
+
+              io.to(`provider:services:${provider.email}`).emit(
+                "servicesUpdated",
+                [
                   {
-                    _id: serviceProviderDetail._id.toString(),
-                    serviceProviderName:
-                      serviceProviderDetail.serviceProviderName,
-                    services: [
-                      {
-                        serviceId: value.serviceId,
-                        serviceName: value.serviceName,
-                        price: value.price,
-                        category: value.category,
-                        description: value.description,
-                        rating: value.rating,
-                      },
-                    ],
+                    providerId: provider._id.toString(),
+                    serviceProviderName: provider.serviceProviderName,
+                    service: [newService],
                   },
-                ];
-                sockets.socketId.forEach((socketId) => {
-                  io.to(socketId).emit(
-                    "services/updateServiceProviders",
-                    payload
-                  );
-                  console.log("socket is trigred");
-                });
-                console.log("⚡ Emitted services update to service component");
-              }
+                ]
+              );
+              console.log(
+                `⚡ Service update sent to provider:services:${provider.email}`
+              );
             }
           }
         } catch (err) {
