@@ -188,7 +188,7 @@ app.delete("/remove-user/:userName", (req, res) =>
 /* ---------------------------
    Public fetches
 ----------------------------*/
-app.get("/services/fetch-serviceProvider", async (req, res) => {
+app.get("/services/fetch-serviceProvider", async (_, res) => {
   try {
     const serviceProvidersCollection = await getCollection("serviceProviders");
     const serviceProvider = await serviceProvidersCollection
@@ -288,27 +288,13 @@ app.post("/SP-dashboard/fetch-servicesRequests", async (req, res) => {
 ----------------------------*/
 app.post("/serviceManagement/addNewServices", async (req, res) => {
   try {
-    const {
-      serviceId,
-      serviceProviderEmail,
-      serviceName,
-      price,
-      category,
-      description,
-    } = req.body;
+    const { newService, serviceProviderEmail } = req.body;
     const col = await getCollection("serviceProviders");
     await col.updateOne(
       { email: serviceProviderEmail },
       {
         $push: {
-          services: {
-            serviceId,
-            serviceName,
-            price,
-            category,
-            description,
-            rating: 4.5,
-          },
+          services: { ...newService, rating: 4.3 },
         },
       }
     );
@@ -336,6 +322,24 @@ app.get("/serviceManagement/getServicesCategory", async (req, res) => {
   }
 });
 
+app.delete("/serviceManagement/deleteService", async (req, res) => {
+  try {
+    const { serviceProviderEmail, serviceId } = req.body;
+    const col = await getCollection("serviceProviders");
+    const result = await col.updateOne(
+      { email: serviceProviderEmail },
+      { $pull: { services: { serviceId: serviceId } } }
+    );
+    if (!result || result.modifiedCount === 0) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+    res.status(200).json({ message: "Service deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting service:", err);
+    res.status(500).json({ message: "Failed to delete service" });
+  }
+});
+
 /* ---------------------------
    Start server and setup change stream
 ----------------------------*/
@@ -353,15 +357,31 @@ async function startServer() {
     await db.collection("users").createIndex({ email: 1 }, { unique: true });
 
     // Start watching change stream for real-time DB updates with error handling and reconnection logic
-    function setupChangeStream(retryCount = 0) {
+    async function setupChangeStream(retryCount = 0) {
       let changeStream;
       try {
+        //-->>comment this if using atlas
+        // Check if replica set is available
+        // const adminDb = db.admin();
+        // const serverStatus = await adminDb.serverStatus();
+
+        // if (!serverStatus.repl || serverStatus.repl.ismaster === undefined) {
+        //   console.warn(
+        //     "⚠️  Change streams disabled: MongoDB is not using atlas cloude.\n" +
+        //       "   Real-time updates will not work."
+        //   );
+        //   return;
+        // }
+
         changeStream = col.watch();
         console.log(
           "🔍 Change stream listening on serviceProviders collection"
         );
       } catch (err) {
         console.error("Failed to initialize change stream:", err);
+
+        //-->>uncomment to enable 'retries' after using connection string of altas
+
         // Retry with exponential backoff, max 5 attempts
         if (retryCount < 5) {
           const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
@@ -372,6 +392,7 @@ async function startServer() {
             "Max retries reached. Change stream will not be initialized."
           );
         }
+        console.warn("⚠️  Continuing without real-time updates...");
         return;
       }
 
