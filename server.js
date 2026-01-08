@@ -439,17 +439,18 @@ async function startServer() {
                 { projection: { email: 1, serviceProviderName: 1 } }
               );
 
-              if (!provider?.email) return;
+              if (!provider) return;
 
-              io.to(`user:services:${provider.email}`).emit("servicesUpdated", [
+              // Broadcast to all users instead of a specific room
+              io.emit("servicesUpdated", [
                 {
-                  providerId: provider._id.toString(),
+                  _id: provider._id.toString(),
                   serviceProviderName: provider.serviceProviderName,
-                  service: [newService],
+                  services: [newService],
                 },
               ]);
               console.log(
-                `⚡ Service update sent to user:services:${provider.email}`
+                `⚡ Service update broadcasted to all users for provider: ${provider.serviceProviderName}`
               );
             }
           }
