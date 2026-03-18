@@ -83,7 +83,7 @@ async function registerPoint(req, res, collectionName, type, nameField) {
     const token = JWT.sign(
       { [nameField]: userNameOrserviceProviderName, email },
       env,
-      { expiresIn: "1h" }
+      { expiresIn: "1h" },
     );
 
     res.status(201).json({
@@ -104,12 +104,12 @@ app.post("/signup-serviceProvider", (req, res) =>
     res,
     "serviceProviders",
     "Towing Service",
-    "serviceProviderName"
-  )
+    "serviceProviderName",
+  ),
 );
 
 app.post("/signup-user", (req, res) =>
-  registerPoint(req, res, "users", "user", "userName")
+  registerPoint(req, res, "users", "user", "userName"),
 );
 
 /* ---------------------------
@@ -135,7 +135,7 @@ async function loginPoint(req, res, collectionName, emailField, nameField) {
         type: user.type,
       },
       env,
-      { expiresIn: "1h" }
+      { expiresIn: "1h" },
     );
 
     res.json({ message: "Login successful", token, name: user[nameField] });
@@ -146,11 +146,11 @@ async function loginPoint(req, res, collectionName, emailField, nameField) {
 }
 
 app.post("/login-serviceProvider", (req, res) =>
-  loginPoint(req, res, "serviceProviders", "email", "serviceProviderName")
+  loginPoint(req, res, "serviceProviders", "email", "serviceProviderName"),
 );
 
 app.post("/login-user", (req, res) =>
-  loginPoint(req, res, "users", "email", "userName")
+  loginPoint(req, res, "users", "email", "userName"),
 );
 
 /* ---------------------------
@@ -177,12 +177,12 @@ app.delete("/remove-serviceProvider/:serviceProviderName", (req, res) =>
     res,
     "serviceProviders",
     "serviceProviderName",
-    "serviceProvider"
-  )
+    "serviceProvider",
+  ),
 );
 
 app.delete("/remove-user/:userName", (req, res) =>
-  removePoint(req, res, "users", "userName", "User")
+  removePoint(req, res, "users", "userName", "User"),
 );
 
 /* ---------------------------
@@ -200,7 +200,7 @@ app.get("/services/fetch-serviceProvider", async (_, res) => {
             serviceProviderName: 1,
             services: 1,
           },
-        }
+        },
       )
       .toArray();
     res.json(serviceProvider);
@@ -240,7 +240,7 @@ app.post("/services/request-services", async (req, res) => {
             createdAt: new Date(),
           },
         },
-      }
+      },
     );
 
     if (updateResult.matchedCount === 0) {
@@ -269,7 +269,7 @@ app.post("/SP-dashboard/fetch-servicesRequests", async (req, res) => {
     const col = await getCollection("serviceProviders");
     const provider = await col.findOne(
       { email: serviceProviderEmail },
-      { projection: { serviceRequestInfo: 1 } }
+      { projection: { serviceRequestInfo: 1 } },
     );
 
     if (!provider) {
@@ -283,6 +283,24 @@ app.post("/SP-dashboard/fetch-servicesRequests", async (req, res) => {
   }
 });
 
+app.delete("/SP-dashboard/delete-serviceRequest", async (req, res) => {
+  try {
+    const { serviceProviderEmail, requestServiceId } = req.body;
+    console.log("Deleting service request:", req);
+    const col = await getCollection("serviceProviders");
+    const result = await col.updateOne(
+      { email: serviceProviderEmail },
+      { $pull: { serviceRequestInfo: { requestServiceId } } },
+    );
+    if (!result || result.modifiedCount === 0) {
+      return res.status(404).json({ message: "Service request not found" });
+    }
+    res.status(200).json({ message: "Service request deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting service request:", err);
+    res.status(500).json({ message: "Failed to delete service request" });
+  }
+});
 /* ---------------------------
    Service management (add service)
 ----------------------------*/
@@ -296,7 +314,7 @@ app.post("/serviceManagement/addNewServices", async (req, res) => {
         $push: {
           services: { ...newService, rating: 4.3 },
         },
-      }
+      },
     );
     res.status(201).json({ message: "Service added successfully" });
   } catch (err) {
@@ -311,7 +329,7 @@ app.get("/serviceManagement/getServicesCategory", async (req, res) => {
     const col = await getCollection("serviceProviders");
     const services = await col.findOne(
       { email: serviceProviderEmail },
-      { projection: { services: 1, _id: 1 } }
+      { projection: { services: 1, _id: 1 } },
     );
     if (!services)
       return res.status(404).json({ message: "Service provider not found" });
@@ -328,7 +346,7 @@ app.delete("/serviceManagement/deleteService", async (req, res) => {
     const col = await getCollection("serviceProviders");
     const result = await col.updateOne(
       { email: serviceProviderEmail },
-      { $pull: { services: { serviceId: serviceId } } }
+      { $pull: { services: { serviceId: serviceId } } },
     );
     if (!result || result.modifiedCount === 0) {
       return res.status(404).json({ message: "Service not found" });
@@ -375,7 +393,7 @@ async function startServer() {
 
         changeStream = col.watch();
         console.log(
-          "🔍 Change stream listening on serviceProviders collection"
+          "🔍 Change stream listening on serviceProviders collection",
         );
       } catch (err) {
         console.error("Failed to initialize change stream:", err);
@@ -389,7 +407,7 @@ async function startServer() {
           setTimeout(() => setupChangeStream(retryCount + 1), delay);
         } else {
           console.error(
-            "Max retries reached. Change stream will not be initialized."
+            "Max retries reached. Change stream will not be initialized.",
           );
         }
         console.warn("⚠️  Continuing without real-time updates...");
@@ -408,7 +426,7 @@ async function startServer() {
             if (
               change.operationType === "update" &&
               Object.keys(updatedFields).some((k) =>
-                k.startsWith("serviceRequestInfo.")
+                k.startsWith("serviceRequestInfo."),
               )
             ) {
               const newRequest = Object.values(updatedFields)[0];
@@ -416,18 +434,18 @@ async function startServer() {
               // 🔑 Fetch provider email (needed for room)
               const provider = await col.findOne(
                 { _id: change.documentKey._id },
-                { projection: { email: 1 } }
+                { projection: { email: 1 } },
               );
 
               if (!provider?.email) return;
 
               io.to(`provider:dashboard:${provider.email}`).emit(
                 "serviceRequestUpdated",
-                newRequest
+                newRequest,
               );
 
               console.log(
-                `⚡ Service request sent to provider:dashboard:${provider.email}`
+                `⚡ Service request sent to provider:dashboard:${provider.email}`,
               );
             } else if (
               Object.keys(updatedFields).some((k) => k.startsWith("services."))
@@ -436,7 +454,7 @@ async function startServer() {
 
               const provider = await col.findOne(
                 { _id: change.documentKey._id },
-                { projection: { email: 1, serviceProviderName: 1 } }
+                { projection: { email: 1, serviceProviderName: 1 } },
               );
 
               if (!provider) return;
@@ -450,7 +468,7 @@ async function startServer() {
                 },
               ]);
               console.log(
-                `⚡ Service update broadcasted to all users for provider: ${provider.serviceProviderName}`
+                `⚡ Service update broadcasted to all users for provider: ${provider.serviceProviderName}`,
               );
             }
           }
@@ -471,7 +489,7 @@ async function startServer() {
         const nextRetry = Math.min(retryCount + 1, 5);
         const delay = Math.min(1000 * Math.pow(2, nextRetry), 10000);
         console.log(
-          `Attempting to re-establish change stream in ${delay}ms...`
+          `Attempting to re-establish change stream in ${delay}ms...`,
         );
         setTimeout(() => setupChangeStream(nextRetry), delay);
       });
