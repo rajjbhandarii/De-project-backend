@@ -1,16 +1,7 @@
 import express from "express";
-import connectDB from "./db.js";
+import { getCollection } from "./db.js";
 
 const SP = express.Router();
-
-let db;
-
-async function getCollection(collectionName) {
-  if (!db) {
-    db = await connectDB();
-  }
-  return db.collection(collectionName);
-}
 
 /* ---------------------------
    Provider dashboard initial fetch
@@ -29,7 +20,7 @@ SP.post("/SP-dashboard/fetch-servicesRequests", async (req, res) => {
     );
 
     if (!provider) {
-      return res.status(404).json({ message: "Service providerr not found" });
+      return res.status(404).json({ message: "Service provider not found" });
     }
 
     res.json(provider.serviceRequestInfo || []);
@@ -77,7 +68,7 @@ SP.post("/serviceManagement/addNewServices", async (req, res) => {
       { email: serviceProviderEmail },
       {
         $push: {
-          services: { ...newService, rating: 4.3 },
+          services: { ...newService, rating: 0 },
         },
       },
     );

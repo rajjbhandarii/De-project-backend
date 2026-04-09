@@ -1,17 +1,8 @@
 import express from "express";
-import connectDB from "./db.js";
 import { ObjectId } from "mongodb";
+import { getCollection } from "./db.js";
 
 const user = express.Router();
-
-let db;
-
-async function getCollection(collectionName) {
-  if (!db) {
-    db = await connectDB();
-  }
-  return db.collection(collectionName);
-}
 
 /* ---------------------------
    Public fetches

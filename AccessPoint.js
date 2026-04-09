@@ -1,19 +1,14 @@
 import express from "express";
-import connectDB from "./db.js";
 import JWT from "jsonwebtoken";
-import dotenv from "dotenv";
+import { getCollection } from "./db.js";
 
-dotenv.config();
 const accessPoint = express.Router();
-const env = process.env.JWT_SECRET || "iuehdkif83br6w3bnskxJ9jT";
 
-let db;
-
-async function getCollection(collectionName) {
-  if (!db) {
-    db = await connectDB();
-  }
-  return db.collection(collectionName);
+// Fail fast if JWT_SECRET is not set — never use a hardcoded fallback in production
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET env variable is not set.");
+  process.exit(1);
 }
 
 /* ---------------------------
@@ -51,7 +46,7 @@ async function registerPoint(req, res, collectionName, type, nameField) {
 
     const token = JWT.sign(
       { [nameField]: userNameOrserviceProviderName, email },
-      env,
+      JWT_SECRET,
       { expiresIn: "1h" },
     );
 
@@ -103,7 +98,7 @@ async function loginPoint(req, res, collectionName, emailField, nameField) {
         email: user[emailField],
         type: user.type,
       },
-      env,
+      JWT_SECRET,
       { expiresIn: "1h" },
     );
 
