@@ -1,5 +1,6 @@
 import express from "express";
 import { getCollection } from "./db.js";
+import { invalidateCache } from "./User.js";
 
 const SP = express.Router();
 
@@ -72,6 +73,7 @@ SP.post("/serviceManagement/addNewServices", async (req, res) => {
         },
       },
     );
+    invalidateCache(); // bust provider list cache
     res.status(201).json({ message: "Service added successfully" });
   } catch (err) {
     console.error("Error adding service:", err);
@@ -107,6 +109,7 @@ SP.delete("/serviceManagement/deleteService", async (req, res) => {
     if (!result || result.modifiedCount === 0) {
       return res.status(404).json({ message: "Service not found" });
     }
+    invalidateCache(); // bust provider list cache
     res.status(200).json({ message: "Service deleted successfully" });
   } catch (err) {
     console.error("Error deleting service:", err);

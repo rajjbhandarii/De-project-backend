@@ -4,11 +4,29 @@ import { getCollection } from "./db.js";
 
 const user = express.Router();
 
+// --- Simple in-memory cache for service providers list ---
+const CACHE_TTL_MS = 30_000; // 30 seconds
+let serviceProviderCache = null;
+let cacheTimestamp = 0;
+
+function invalidateCache() {
+  serviceProviderCache = null;
+  cacheTimestamp = 0;
+}
+
+// Export so other modules can invalidate when they modify provider data
+export { invalidateCache };
+
 /* ---------------------------
    Public fetches
 ----------------------------*/
 user.get("/services/fetch-serviceProvider", async (_, res) => {
   try {
+    // Serve from cache if still fresh
+    if (serviceProviderCache && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+      return res.json(serviceProviderCache);
+    }
+
     const serviceProvidersCollection = await getCollection("serviceProviders");
     const serviceProvider = await serviceProvidersCollection
       .find(
@@ -22,6 +40,11 @@ user.get("/services/fetch-serviceProvider", async (_, res) => {
         },
       )
       .toArray();
+
+    // Update cache
+    serviceProviderCache = serviceProvider;
+    cacheTimestamp = Date.now();
+
     res.json(serviceProvider);
   } catch (err) {
     console.error("Error fetching service providers:", err);
@@ -65,6 +88,9 @@ user.post("/services/request-services", async (req, res) => {
     if (updateResult.matchedCount === 0) {
       return res.status(404).json({ message: "Service provider not found" });
     }
+
+    // Invalidate cache since provider data changed
+    invalidateCache();
 
     return res
       .status(201)

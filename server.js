@@ -5,6 +5,7 @@ import express from "express";
 import cors from "cors";
 import http from "http";
 import morgan from "morgan";
+import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { Server } from "socket.io";
 
@@ -18,11 +19,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- CORS: restrict origins via env (defaults to localhost Angular dev server) ---
-const ALLOWED_ORIGINS = process.env.CORS_ORIGINS?.split(",") ||
-  "http://localhost:4200";
+const ALLOWED_ORIGINS =
+  process.env.CORS_ORIGINS?.split(",") || "http://localhost:4200";
 app.use(cors({ origin: ALLOWED_ORIGINS }));
 
 // --- Middleware ---
+app.use(compression()); // gzip compress all responses
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -58,7 +60,6 @@ io.on("connection", (socket) => {
     console.log("🔴 Socket disconnected:", socket.id);
   });
 });
-
 
 let cleanupWatcher = null;
 

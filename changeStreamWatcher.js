@@ -132,32 +132,25 @@ async function setupPollingFallback(io, col) {
 async function setupChangeStream(io, col, retryCount = 0) {
   let changeStream;
   try {
-    changeStream = col.watch();
+    // Use a throwaway stream to probe whether change streams are supported.
+    // tryNext() puts the stream in iterator mode, which is incompatible
+    // with .on("change") (event emitter mode).  So we probe on a separate
+    // cursor and immediately close it, then create the real one below.
+    const probe = col.watch();
+    await probe.tryNext();
+    await probe.close();
 
-    // .watch() doesn't throw immediately on standalone; the error fires
-    // on the first server-side cursor creation.  We force that by
-    // awaiting the internal cursor's init via hasNext with a short timeout.
-    await Promise.race([
-      changeStream.next(), // will reject on standalone
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("timeout")), 2000),
-      ),
-    ]).catch((err) => {
-      if (
-        /replica|not supported|topology/.test(err.message) ||
-        err.message === "timeout"
-      ) {
-        throw err; // caught by outer catch
-      }
-      // Otherwise just ignore (e.g. empty collection)
-    });
+    // Now create the actual change stream for listening
+    changeStream = col.watch([], { fullDocument: "updateLookup" });
 
-    console.log(
-      "🔍 Change stream listening on serviceProviders collection",
-    );
+    console.log("🔍 Change stream listening on serviceProviders collection");
   } catch (err) {
-    // Detect standalone-specific error and fall back to polling
-    if (/replica|not supported|topology|timeout/.test(err.message)) {
+    // Detect standalone-specific errors and fall back to polling
+    if (
+      /replica|not supported|topology|standalone/.test(err.message) ||
+      err.code === 40573 ||
+      err.code === 40
+    ) {
       console.warn(
         "⚠️  Change streams require a replica set.",
         "Falling back to polling for real-time updates.",
@@ -177,9 +170,19 @@ async function setupChangeStream(io, col, retryCount = 0) {
     if (retryCount < MAX_RETRIES) {
       const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
       console.log(`Retrying change stream initialization in ${delay}ms...`);
+      try {
+        changeStream?.close();
+      } catch (_) {
+        /* ignore */
+      }
       setTimeout(() => setupChangeStream(io, col, retryCount + 1), delay);
     } else {
       console.error("Max retries reached. Falling back to polling.");
+      try {
+        changeStream?.close();
+      } catch (_) {
+        /* ignore */
+      }
       await setupPollingFallback(io, col);
     }
     return;
@@ -264,9 +267,7 @@ async function setupChangeStream(io, col, retryCount = 0) {
     if (retryCount < MAX_RETRIES) {
       const nextRetry = retryCount + 1;
       const delay = Math.min(1000 * Math.pow(2, nextRetry), 10000);
-      console.log(
-        `Attempting to re-establish change stream in ${delay}ms...`,
-      );
+      console.log(`Attempting to re-establish change stream in ${delay}ms...`);
       setTimeout(() => setupChangeStream(io, col, nextRetry), delay);
     } else {
       console.error("Max retries reached. Falling back to polling.");
