@@ -219,6 +219,7 @@ async function setupChangeStream(io, col, retryCount = 0) {
           io.to(`provider:dashboard:${provider.email}`).emit(
             "serviceRequestUpdated",
             newRequest,
+            change.documentKey._id.toString(),
           );
 
           console.log(
@@ -243,6 +244,7 @@ async function setupChangeStream(io, col, retryCount = 0) {
             {
               _id: provider._id.toString(),
               serviceProviderName: provider.serviceProviderName,
+              email: provider.email,
               services: [newService],
             },
           ]);

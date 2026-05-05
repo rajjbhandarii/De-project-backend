@@ -36,6 +36,7 @@ user.get("/services/fetch-serviceProvider", async (_, res) => {
           projection: {
             _id: 1,
             serviceProviderName: 1,
+            email: 1,
             services: 1,
           },
         },
@@ -81,6 +82,7 @@ user.post("/services/request-services", async (req, res) => {
           serviceRequestInfo: {
             requestServiceId,
             userName,
+            userEmail: email,
             userLocation,
             category,
             createdAt: new Date(),

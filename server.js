@@ -61,12 +61,12 @@ io.on("connection", (socket) => {
   });
 
   socket.on(
-    "sendNotificationToUser",
+    "SP-Dashboard/sendNotificationToUser",
     ({ userEmail, message, requestServiceId, providerName }) => {
       console.log(
         `📣 Sending notification to ${userEmail}: ${message} (requestServiceId: ${requestServiceId}, providerName: ${providerName})`,
       );
-      io.to(userEmail).emit("notificationFromProvider", {
+      io.to(userEmail).emit("navbarComponent/notificationFromProvider", {
         message,
         requestServiceId,
         providerName,
@@ -75,12 +75,12 @@ io.on("connection", (socket) => {
   );
 
   socket.on(
-    "sendNotificationToProvider",
+    "serviceComponent/sendNotificationToProvider",
     ({ providerEmail, message, userLocation, requestServiceId, userName }) => {
       console.log(
         `📣 Sending notification to provider ${providerEmail}: ${message} (userLocation: ${userLocation}, requestServiceId: ${requestServiceId}, userName: ${userName})`,
       );
-      io.to(providerEmail).emit("notificationFromUser", {
+      io.to(providerEmail).emit("navbarComponent/notificationFromUser", {
         message,
         userLocation,
         requestServiceId,
