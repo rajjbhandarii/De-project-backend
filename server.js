@@ -59,6 +59,35 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("🔴 Socket disconnected:", socket.id);
   });
+
+  socket.on(
+    "sendNotificationToUser",
+    ({ userEmail, message, requestServiceId, providerName }) => {
+      console.log(
+        `📣 Sending notification to ${userEmail}: ${message} (requestServiceId: ${requestServiceId}, providerName: ${providerName})`,
+      );
+      io.to(userEmail).emit("notificationFromProvider", {
+        message,
+        requestServiceId,
+        providerName,
+      });
+    },
+  );
+
+  socket.on(
+    "sendNotificationToProvider",
+    ({ providerEmail, message, userLocation, requestServiceId, userName }) => {
+      console.log(
+        `📣 Sending notification to provider ${providerEmail}: ${message} (userLocation: ${userLocation}, requestServiceId: ${requestServiceId}, userName: ${userName})`,
+      );
+      io.to(providerEmail).emit("notificationFromUser", {
+        message,
+        userLocation,
+        requestServiceId,
+        userName,
+      });
+    },
+  );
 });
 
 let cleanupWatcher = null;

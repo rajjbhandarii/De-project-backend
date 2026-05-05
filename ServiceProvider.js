@@ -1,7 +1,6 @@
 import express from "express";
 import { getCollection } from "./db.js";
 import { invalidateCache } from "./User.js";
-
 const SP = express.Router();
 
 /* ---------------------------

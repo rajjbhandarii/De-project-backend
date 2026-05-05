@@ -1,6 +1,7 @@
 import express from "express";
 import { ObjectId } from "mongodb";
 import { getCollection } from "./db.js";
+import { create } from "node:domain";
 
 const user = express.Router();
 
@@ -54,11 +55,13 @@ user.get("/services/fetch-serviceProvider", async (_, res) => {
 
 user.post("/services/request-services", async (req, res) => {
   const {
+    email,
     _id: providerId,
     userName,
     userLocation,
     category,
     requestServiceId,
+    isRequested,
   } = req.body;
 
   try {
@@ -66,11 +69,12 @@ user.post("/services/request-services", async (req, res) => {
       return res.status(400).json({ message: "Invalid or missing providerId" });
     }
 
-    const col = await getCollection("serviceProviders");
+    const serviceProviderCollection = await getCollection("serviceProviders");
+    const UserCollection = await getCollection("users");
 
     const providerObjectId = new ObjectId(String(providerId));
 
-    const updateResult = await col.updateOne(
+    const updateResult = await serviceProviderCollection.updateOne(
       { _id: providerObjectId },
       {
         $push: {
@@ -80,6 +84,19 @@ user.post("/services/request-services", async (req, res) => {
             userLocation,
             category,
             createdAt: new Date(),
+          },
+        },
+      },
+    );
+
+    const userUpdateResult = await UserCollection.updateOne(
+      { email: req.body.email },
+      {
+        $push: {
+          RequestedServcies: {
+            requestServiceId,
+            providerId,
+            isRequested,
           },
         },
       },
