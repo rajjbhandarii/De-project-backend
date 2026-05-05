@@ -198,6 +198,12 @@ async function setupChangeStream(io, col, retryCount = 0) {
         change.operationType === "replace" ||
         change.operationType === "insert"
       ) {
+        console.log(
+          `🔔 Detected ${change.operationType} on document ${change.documentKey._id}`,
+          "Updated fields:",
+          updatedFields,
+        );
+
         if (
           change.operationType === "update" &&
           Object.keys(updatedFields).some((k) =>
@@ -216,7 +222,8 @@ async function setupChangeStream(io, col, retryCount = 0) {
 
           if (!provider?.email) return;
 
-          io.to(`provider:dashboard:${provider.email}`).emit(
+          console.log("newRequest:", newRequest);
+          io.to(provider.email).emit(
             "serviceRequestUpdated",
             newRequest,
             change.documentKey._id.toString(),
