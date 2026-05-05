@@ -88,6 +88,35 @@ io.on("connection", (socket) => {
       });
     },
   );
+
+  // --- Real-time location tracking events ---
+  socket.on(
+    "tracking/updateLocation",
+    ({ userEmail, lat, lng, providerName, requestServiceId }) => {
+      console.log(
+        `📍 Location update from ${providerName} → ${userEmail} [${lat}, ${lng}]`,
+      );
+      io.to(userEmail).emit("tracking/providerLocation", {
+        lat,
+        lng,
+        providerName,
+        requestServiceId,
+      });
+    },
+  );
+
+  socket.on(
+    "tracking/stopTracking",
+    ({ userEmail, requestServiceId, providerName }) => {
+      console.log(
+        `🛑 Provider ${providerName} stopped tracking for request ${requestServiceId}`,
+      );
+      io.to(userEmail).emit("tracking/providerStopped", {
+        requestServiceId,
+        providerName,
+      });
+    },
+  );
 });
 
 let cleanupWatcher = null;
