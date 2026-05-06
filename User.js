@@ -63,6 +63,8 @@ user.post("/services/request-services", async (req, res) => {
     category,
     requestServiceId,
     isRequested,
+    userLat,
+    userLng,
   } = req.body;
 
   try {
@@ -86,6 +88,8 @@ user.post("/services/request-services", async (req, res) => {
             userLocation,
             category,
             createdAt: new Date(),
+            userLat: userLat || null,
+            userLng: userLng || null,
           },
         },
       },

@@ -76,7 +76,7 @@ io.on("connection", (socket) => {
 
   socket.on(
     "serviceComponent/sendNotificationToProvider",
-    ({ providerEmail, message, userLocation, requestServiceId, userName }) => {
+    ({ providerEmail, message, userLocation, requestServiceId, userName, userLat, userLng }) => {
       console.log(
         `📣 Sending notification to provider ${providerEmail}: ${message} (userLocation: ${userLocation}, requestServiceId: ${requestServiceId}, userName: ${userName})`,
       );
@@ -85,6 +85,8 @@ io.on("connection", (socket) => {
         userLocation,
         requestServiceId,
         userName,
+        userLat,
+        userLng,
       });
     },
   );
