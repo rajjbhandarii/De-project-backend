@@ -13,7 +13,7 @@
  */
 
 const MAX_RETRIES = 5;
-const POLL_INTERVAL_MS = 3000; // polling interval in ms
+const POLL_INTERVAL_MS = 8000; // polling interval — 8s balances freshness vs DB load
 
 // ---- internal state ----
 let pollingTimer = null;

@@ -38,6 +38,13 @@ async function registerPoint(req, res, collectionName, type, nameField) {
     }
 
     // const hashedPassword = await bcrypt.hash(password, 10);
+    // const normalizedStatus = status || "pending";
+    // if (!VALID_STATUSES.includes(normalizedStatus)) {
+    //   return res.status(400).json({
+    //     message: `Invalid status. Allowed: ${VALID_STATUSES.join(", ")}`,
+    //   });
+    // }
+
     await collection.insertOne({
       email,
       [nameField]: userNameOrserviceProviderName,

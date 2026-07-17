@@ -1,7 +1,6 @@
 import express from "express";
 import { ObjectId } from "mongodb";
 import { getCollection } from "./db.js";
-import { create } from "node:domain";
 
 const user = express.Router();
 

@@ -12,6 +12,7 @@ import { Server } from "socket.io";
 import { getDb, getCollection, closeDb } from "./db.js";
 import { SP } from "./ServiceProvider.js";
 import accessPoint from "./AccessPoint.js";
+import adminRouter from "./admin.js";
 import user from "./User.js";
 import { startWatcher } from "./changeStreamWatcher.js";
 import paymentRouter from "./payment.js";
@@ -37,10 +38,13 @@ const authLimiter = rateLimit({
 });
 app.use("/login-", authLimiter);
 app.use("/signup-", authLimiter);
+app.use("/admin/login", authLimiter);
+app.use("/admin/signup", authLimiter);
 
 // --- Routes ---
 app.use(SP);
 app.use(accessPoint);
+app.use(adminRouter);
 app.use(user);
 app.use(paymentRouter);
 
@@ -132,17 +136,13 @@ io.on("connection", (socket) => {
         );
 
         // Look up service price from the provider's services array in DB
-        const { getCollection } = await import("./db.js");
+        // (getCollection is already imported at the top — no dynamic import needed)
         const spCol = await getCollection("serviceProviders");
         const provider = await spCol.findOne(
           { email: providerEmail },
           { projection: { services: 1, serviceProviderName: 1 } }
         );
 
-        // Find the matching service request to get category, then find price
-        const userCol = await getCollection("users");
-
-        // Get the first service price if available
         let amount = 0;
         let serviceName = "Road Rescue Service";
         if (provider?.services?.length > 0) {
@@ -178,6 +178,21 @@ async function startServer() {
       .collection("serviceProviders")
       .createIndex({ email: 1 }, { unique: true });
     await db.collection("users").createIndex({ email: 1 }, { unique: true });
+    await db.collection("admins").createIndex({ email: 1 }, { unique: true });
+
+    // Indexes to speed up frequent query patterns
+    // SP dashboard: fetch service requests by provider email + requestServiceId
+    await db
+      .collection("serviceProviders")
+      .createIndex({ "serviceRequestInfo.requestServiceId": 1 });
+    // Payment history: lookup by userEmail, sorted by date
+    await db
+      .collection("payments")
+      .createIndex({ userEmail: 1, createdAt: -1 });
+    // Payment lookup by orderId (used in verify)
+    await db
+      .collection("payments")
+      .createIndex({ razorpayOrderId: 1 }, { unique: true, sparse: true });
 
     // Start watching for real-time DB changes (auto-falls back to polling on standalone)
     cleanupWatcher = await startWatcher(io, col);
