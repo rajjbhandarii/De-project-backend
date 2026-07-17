@@ -4,7 +4,7 @@ import { ObjectId } from "mongodb";
 import { getCollection } from "./db.js";
 
 const adminRouter = express.Router();
-const VALID_STATUSES = ["pending", "approved", "rejected"];
+// const VALID_STATUSES = ["pending", "approved", "rejected"];
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -23,7 +23,9 @@ function getBearerToken(req) {
 function requireAdminAuth(req, res, next) {
   const token = getBearerToken(req);
   if (!token) {
-    return res.status(401).json({ message: "Admin authorization token is required" });
+    return res
+      .status(401)
+      .json({ message: "Admin authorization token is required" });
   }
 
   try {
@@ -46,12 +48,16 @@ function requireAdminAuth(req, res, next) {
 
 async function createAdmin(req, res, { requireAuth }) {
   const { adminName, email, password } = req.body;
-  const normalizedAdminName = typeof adminName === "string" ? adminName.trim() : "";
+  const normalizedAdminName =
+    typeof adminName === "string" ? adminName.trim() : "";
   const normalizedEmail = typeof email === "string" ? email.trim() : "";
-  const normalizedPassword = typeof password === "string" ? password.trim() : "";
+  const normalizedPassword =
+    typeof password === "string" ? password.trim() : "";
 
   if (!normalizedAdminName || !normalizedEmail || !normalizedPassword) {
-    return res.status(400).json({ message: "adminName, email and password are required" });
+    return res
+      .status(400)
+      .json({ message: "adminName, email and password are required" });
   }
 
   try {
@@ -61,7 +67,9 @@ async function createAdmin(req, res, { requireAuth }) {
     if (requireAuth && adminsCount > 0) {
       const token = getBearerToken(req);
       if (!token) {
-        return res.status(401).json({ message: "Admin authorization token is required" });
+        return res
+          .status(401)
+          .json({ message: "Admin authorization token is required" });
       }
 
       try {
@@ -76,11 +84,15 @@ async function createAdmin(req, res, { requireAuth }) {
         }
       } catch (err) {
         console.error("Error verifying admin token:", err);
-        return res.status(401).json({ message: "Invalid or expired admin token" });
+        return res
+          .status(401)
+          .json({ message: "Invalid or expired admin token" });
       }
     }
 
-    const existingAdmin = await adminsCollection.findOne({ email: normalizedEmail });
+    const existingAdmin = await adminsCollection.findOne({
+      email: normalizedEmail,
+    });
     if (existingAdmin) {
       return res.status(409).json({ message: "Admin email already exists" });
     }
@@ -103,7 +115,8 @@ async function adminCreateAccount(req, res, collectionName, nameField) {
   const { [nameField]: name, email, password, status } = req.body;
   const normalizedName = typeof name === "string" ? name.trim() : "";
   const normalizedEmail = typeof email === "string" ? email.trim() : "";
-  const normalizedPassword = typeof password === "string" ? password.trim() : "";
+  const normalizedPassword =
+    typeof password === "string" ? password.trim() : "";
   const normalizedStatus = status || "pending";
 
   if (!normalizedName || !normalizedEmail || !normalizedPassword) {
@@ -120,12 +133,16 @@ async function adminCreateAccount(req, res, collectionName, nameField) {
 
   try {
     const collection = await getCollection(collectionName);
-    const existingByEmail = await collection.findOne({ email: normalizedEmail });
+    const existingByEmail = await collection.findOne({
+      email: normalizedEmail,
+    });
     if (existingByEmail) {
       return res.status(409).json({ message: "Email already exists" });
     }
 
-    const existingByName = await collection.findOne({ [nameField]: normalizedName });
+    const existingByName = await collection.findOne({
+      [nameField]: normalizedName,
+    });
     if (existingByName) {
       return res.status(409).json({ message: `${nameField} already exists` });
     }
@@ -186,7 +203,8 @@ adminRouter.post("/admin/signup", async (req, res) =>
 adminRouter.post("/admin/login", async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = typeof email === "string" ? email.trim() : "";
-  const normalizedPassword = typeof password === "string" ? password.trim() : "";
+  const normalizedPassword =
+    typeof password === "string" ? password.trim() : "";
 
   if (!normalizedEmail || !normalizedPassword) {
     return res.status(400).json({ message: "email and password are required" });
@@ -200,12 +218,21 @@ adminRouter.post("/admin/login", async (req, res) => {
     }
 
     const token = JWT.sign(
-      { id: admin._id.toString(), email: admin.email, adminName: admin.adminName, role: "admin" },
+      {
+        id: admin._id.toString(),
+        email: admin.email,
+        adminName: admin.adminName,
+        role: "admin",
+      },
       JWT_SECRET,
       { expiresIn: "8h" },
     );
 
-    res.json({ message: "Admin login successful", token, adminName: admin.adminName });
+    res.json({
+      message: "Admin login successful",
+      token,
+      adminName: admin.adminName,
+    });
   } catch (err) {
     console.error("Error in admin login:", err);
     res.status(500).json({ message: "Failed to login admin" });
@@ -222,7 +249,10 @@ adminRouter.get("/admin/admins", requireAdminAuth, async (_, res) => {
   try {
     const collection = await getCollection("admins");
     const admins = await collection
-      .find({}, { projection: { _id: 1, adminName: 1, email: 1, createdAt: 1 } })
+      .find(
+        {},
+        { projection: { _id: 1, adminName: 1, email: 1, createdAt: 1 } },
+      )
       .sort({ createdAt: -1 })
       .toArray();
     res.json(admins);
@@ -249,8 +279,17 @@ adminRouter.delete("/admin/users/:userName", requireAdminAuth, (req, res) =>
 );
 
 // Note: providers are deleted by serviceProviderName (URL-encoded)
-adminRouter.delete("/admin/providers/:serviceProviderName", requireAdminAuth, (req, res) =>
-  removePoint(req, res, "serviceProviders", "serviceProviderName", "serviceProvider"),
+adminRouter.delete(
+  "/admin/providers/:serviceProviderName",
+  requireAdminAuth,
+  (req, res) =>
+    removePoint(
+      req,
+      res,
+      "serviceProviders",
+      "serviceProviderName",
+      "serviceProvider",
+    ),
 );
 
 adminRouter.get("/admin/users", requireAdminAuth, async (_, res) => {
@@ -306,7 +345,9 @@ adminRouter.get("/admin/providers", requireAdminAuth, async (_, res) => {
 adminRouter.patch("/admin/users/:id", requireAdminAuth, async (req, res) => {
   const { id } = req.params;
   const { userName, email } = req.body;
-  const normalizedUserName = typeof userName === "string" ? userName.trim() : "";
+  console.log("body:", req.body);
+  const normalizedUserName =
+    typeof userName === "string" ? userName.trim() : "";
   const normalizedEmail = typeof email === "string" ? email.trim() : "";
 
   if (!ObjectId.isValid(id)) {
@@ -325,18 +366,18 @@ adminRouter.patch("/admin/users/:id", requireAdminAuth, async (req, res) => {
       _id: { $ne: userId },
       email: normalizedEmail,
     });
-    if (existingByEmail) {
-      return res.status(409).json({ message: "Email already exists" });
-    }
+    console.log("existingByEmail:", existingByEmail);
 
     const existingByUserName = await collection.findOne({
       _id: { $ne: userId },
       userName: normalizedUserName,
     });
-    if (existingByUserName) {
-      return res.status(409).json({ message: "User name already exists" });
-    }
 
+    if (existingByEmail && existingByUserName) {
+      return res
+        .status(409)
+        .json({ message: "Email and UserName already exists" });
+    }
     const result = await collection.updateOne(
       { _id: userId },
       {
@@ -359,38 +400,105 @@ adminRouter.patch("/admin/users/:id", requireAdminAuth, async (req, res) => {
   }
 });
 
-// PATCH /admin/providers/status — must be defined before /:serviceProviderName param route
-adminRouter.patch("/admin/providers/status", requireAdminAuth, async (req, res) => {
-  const { serviceProviderName, status } = req.body;
+// Edit provider name and email by MongoDB _id
+adminRouter.patch(
+  "/admin/providers/:id",
+  requireAdminAuth,
+  async (req, res) => {
+    const { id } = req.params;
+    const { serviceProviderName, email } = req.body;
+    const normalizedName =
+      typeof serviceProviderName === "string" ? serviceProviderName.trim() : "";
+    const normalizedEmail = typeof email === "string" ? email.trim() : "";
 
-  if (!serviceProviderName || !status) {
-    return res
-      .status(400)
-      .json({ message: "serviceProviderName and status are required" });
-  }
-
-  if (!VALID_STATUSES.includes(status)) {
-    return res.status(400).json({
-      message: `Invalid status. Allowed: ${VALID_STATUSES.join(", ")}`,
-    });
-  }
-
-  try {
-    const collection = await getCollection("serviceProviders");
-    const result = await collection.updateOne(
-      { serviceProviderName },
-      { $set: { status, updatedAt: new Date() } },
-    );
-
-    if (result.matchedCount === 0) {
-      return res.status(404).json({ message: "Service provider not found" });
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid provider id" });
     }
 
-    res.json({ message: "Service provider status updated successfully" });
-  } catch (err) {
-    console.error("Error updating service provider status:", err);
-    res.status(500).json({ message: "Failed to update provider status" });
-  }
-});
+    if (!normalizedName || !normalizedEmail) {
+      return res
+        .status(400)
+        .json({ message: "serviceProviderName and email are required" });
+    }
+
+    try {
+      const collection = await getCollection("serviceProviders");
+      const providerId = new ObjectId(id);
+
+      const existingByEmail = await collection.findOne({
+        _id: { $ne: providerId },
+        email: normalizedEmail,
+      });
+
+      const existingByName = await collection.findOne({
+        _id: { $ne: providerId },
+        serviceProviderName: normalizedName,
+      });
+
+      if (existingByEmail && existingByName) {
+        return res
+          .status(409)
+          .json({ message: "Email and Provider name already exists" });
+      }
+      const result = await collection.updateOne(
+        { _id: providerId },
+        {
+          $set: {
+            serviceProviderName: normalizedName,
+            email: normalizedEmail,
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "Service provider not found" });
+      }
+
+      res.json({ message: "Provider details updated successfully" });
+    } catch (err) {
+      console.error("Error updating provider details:", err);
+      res.status(500).json({ message: "Failed to update provider" });
+    }
+  },
+);
+
+// PATCH /admin/providers/status — must be defined before /:serviceProviderName param route
+// adminRouter.patch(
+//   "/admin/providers/status",
+//   requireAdminAuth,
+//   async (req, res) => {
+//     const { serviceProviderName, status } = req.body;
+
+//     if (!serviceProviderName || !status) {
+//       return res
+//         .status(400)
+//         .json({ message: "serviceProviderName and status are required" });
+//     }
+
+//     if (!VALID_STATUSES.includes(status)) {
+//       return res.status(400).json({
+//         message: `Invalid status. Allowed: ${VALID_STATUSES.join(", ")}`,
+//       });
+//     }
+
+//     try {
+//       const collection = await getCollection("serviceProviders");
+//       const result = await collection.updateOne(
+//         { serviceProviderName },
+//         { $set: { status, updatedAt: new Date() } },
+//       );
+
+//       if (result.matchedCount === 0) {
+//         return res.status(404).json({ message: "Service provider not found" });
+//       }
+
+//       res.json({ message: "Service provider status updated successfully" });
+//     } catch (err) {
+//       console.error("Error updating service provider status:", err);
+//       res.status(500).json({ message: "Failed to update provider status" });
+//     }
+//   },
+// );
 
 export default adminRouter;
