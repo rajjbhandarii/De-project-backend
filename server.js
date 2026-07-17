@@ -14,6 +14,7 @@ import { SP } from "./ServiceProvider.js";
 import accessPoint from "./AccessPoint.js";
 import user from "./User.js";
 import { startWatcher } from "./changeStreamWatcher.js";
+import paymentRouter from "./payment.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -41,6 +42,7 @@ app.use("/signup-", authLimiter);
 app.use(SP);
 app.use(accessPoint);
 app.use(user);
+app.use(paymentRouter);
 
 // --- REAL-TIME / SOCKET.IO SETUP ---
 const server = http.createServer(app);
@@ -117,6 +119,47 @@ io.on("connection", (socket) => {
         requestServiceId,
         providerName,
       });
+    },
+  );
+
+  // --- Payment: notify user that SP has dispatched → show Pay Now button ---
+  socket.on(
+    "payment/notifyUserDispatch",
+    async ({ userEmail, requestServiceId, providerEmail, providerName }) => {
+      try {
+        console.log(
+          `💳 SP ${providerName} dispatched request ${requestServiceId} → notifying ${userEmail} to pay`,
+        );
+
+        // Look up service price from the provider's services array in DB
+        const { getCollection } = await import("./db.js");
+        const spCol = await getCollection("serviceProviders");
+        const provider = await spCol.findOne(
+          { email: providerEmail },
+          { projection: { services: 1, serviceProviderName: 1 } }
+        );
+
+        // Find the matching service request to get category, then find price
+        const userCol = await getCollection("users");
+
+        // Get the first service price if available
+        let amount = 0;
+        let serviceName = "Road Rescue Service";
+        if (provider?.services?.length > 0) {
+          amount = provider.services[0].price || 0;
+          serviceName = provider.services[0].serviceName || serviceName;
+        }
+
+        io.to(userEmail).emit("payment/serviceDispatched", {
+          requestServiceId,
+          amount,
+          serviceName,
+          providerEmail,
+          providerName,
+        });
+      } catch (err) {
+        console.error("Error in payment/notifyUserDispatch:", err);
+      }
     },
   );
 });
