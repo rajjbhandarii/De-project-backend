@@ -25,6 +25,12 @@ async function registerPoint(req, res, collectionName, type, nameField) {
     return res.status(400).json({ message: "Missing fields" });
   }
 
+  if (password.length < 8) {
+    return res
+      .status(400)
+      .json({ message: "Password must be at least 8 characters long" });
+  }
+
   try {
     const collection = await getCollection(collectionName);
     const existing = await collection.findOne({ email });
@@ -90,6 +96,11 @@ async function loginPoint(req, res, collectionName, emailField, nameField) {
   const { [emailField]: providedEmail, password } = req.body;
 
   try {
+    if (password.length < 8) {
+      return res
+        .status(401)
+        .json({ message: "Password must be at least 8 characters long" });
+    }
     const collection = await getCollection(collectionName);
     const user = await collection.findOne({ [emailField]: providedEmail });
 

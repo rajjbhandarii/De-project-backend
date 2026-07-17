@@ -176,6 +176,9 @@ async function removePoint(req, res, collectionName, nameField, type) {
   }
 }
 
+// =====================================================================
+// PUBLIC routes — no auth required
+// =====================================================================
 adminRouter.post("/admin/signup", async (req, res) =>
   createAdmin(req, res, { requireAuth: true }),
 );
@@ -209,9 +212,13 @@ adminRouter.post("/admin/login", async (req, res) => {
   }
 });
 
-adminRouter.use("/admin", requireAdminAuth);
+// =====================================================================
+// PROTECTED routes — requireAdminAuth applied inline to each route
+// (avoids the prefix-matching issue of router.use("/admin", fn) which
+// would also intercept /admin/login and /admin/signup)
+// =====================================================================
 
-adminRouter.get("/admin/admins", async (_, res) => {
+adminRouter.get("/admin/admins", requireAdminAuth, async (_, res) => {
   try {
     const collection = await getCollection("admins");
     const admins = await collection
@@ -225,28 +232,28 @@ adminRouter.get("/admin/admins", async (_, res) => {
   }
 });
 
-adminRouter.post("/admin/admins", async (req, res) =>
+adminRouter.post("/admin/admins", requireAdminAuth, async (req, res) =>
   createAdmin(req, res, { requireAuth: false }),
 );
 
-adminRouter.post("/admin/users", (req, res) =>
+adminRouter.post("/admin/users", requireAdminAuth, (req, res) =>
   adminCreateAccount(req, res, "users", "userName"),
 );
 
-adminRouter.post("/admin/providers", (req, res) =>
+adminRouter.post("/admin/providers", requireAdminAuth, (req, res) =>
   adminCreateAccount(req, res, "serviceProviders", "serviceProviderName"),
 );
 
-adminRouter.delete("/admin/users/:userName", (req, res) =>
+adminRouter.delete("/admin/users/:userName", requireAdminAuth, (req, res) =>
   removePoint(req, res, "users", "userName", "User"),
 );
 
 // Note: providers are deleted by serviceProviderName (URL-encoded)
-adminRouter.delete("/admin/providers/:serviceProviderName", (req, res) =>
+adminRouter.delete("/admin/providers/:serviceProviderName", requireAdminAuth, (req, res) =>
   removePoint(req, res, "serviceProviders", "serviceProviderName", "serviceProvider"),
 );
 
-adminRouter.get("/admin/users", async (_, res) => {
+adminRouter.get("/admin/users", requireAdminAuth, async (_, res) => {
   try {
     const collection = await getCollection("users");
     const users = await collection
@@ -271,7 +278,7 @@ adminRouter.get("/admin/users", async (_, res) => {
   }
 });
 
-adminRouter.get("/admin/providers", async (_, res) => {
+adminRouter.get("/admin/providers", requireAdminAuth, async (_, res) => {
   try {
     const collection = await getCollection("serviceProviders");
     const providers = await collection
@@ -296,7 +303,7 @@ adminRouter.get("/admin/providers", async (_, res) => {
   }
 });
 
-adminRouter.patch("/admin/users/:id", async (req, res) => {
+adminRouter.patch("/admin/users/:id", requireAdminAuth, async (req, res) => {
   const { id } = req.params;
   const { userName, email } = req.body;
   const normalizedUserName = typeof userName === "string" ? userName.trim() : "";
@@ -352,10 +359,8 @@ adminRouter.patch("/admin/users/:id", async (req, res) => {
   }
 });
 
-// PATCH /admin/providers/status — update a provider's status by name
-// NOTE: This route MUST be defined before /admin/providers/:serviceProviderName
-// to prevent Express from treating "status" as a :serviceProviderName param.
-adminRouter.patch("/admin/providers/status", async (req, res) => {
+// PATCH /admin/providers/status — must be defined before /:serviceProviderName param route
+adminRouter.patch("/admin/providers/status", requireAdminAuth, async (req, res) => {
   const { serviceProviderName, status } = req.body;
 
   if (!serviceProviderName || !status) {
